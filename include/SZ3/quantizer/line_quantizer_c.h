@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,10 +78,10 @@ typedef struct SZ3LineQuantizerC {
  */
 
 /* 默认初始化：error_bound=1, radius=32768, strict_eb=true */
-void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q);
+static inline void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q);
 
 /* 参数初始化：对标 C++ 构造函数 LinearQuantizer(float eb, int r, bool strict) */
-void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb);
+static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb);
 
 /* 释放内部资源（主要是 unpred 缓冲区） */
 void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
@@ -92,13 +94,13 @@ void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
  */
 
 /* 获取误差界（对标 get_eb） */
-float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
+static inline float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
 
 /* 设置误差界并刷新倒数（对标 set_eb） */
-void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb);
+static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb);
 
 /* 获取输出索引范围（对标 get_out_range，范围为 [0, radius * 2]） */
-SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
+static inline SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
 
 /*
  * ===================== 量化/反量化核心函数 =====================
@@ -109,7 +111,7 @@ SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
  * - 入参 data 为“原始值”，函数内会在可预测时覆写为“解压重建值”；
  * - 返回量化索引，返回 0 表示不可预测并写入 unpred。
  */
-int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q, float *data, float pred);
+static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q, float *data, float pred);
 
 /*
  * 根据量化索引恢复数据（对标 recover）
@@ -125,7 +127,7 @@ float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, float pred, in
 float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q);
 
 /* 强制将原值作为不可预测值保存（对标 force_save_unpred） */
-int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori);
+static inline int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori);
 
 /*
  * ===================== 序列化与统计函数 =====================
@@ -152,14 +154,145 @@ void sz3_line_quantizer_print(const SZ3LineQuantizerC *q, FILE *out);
 
 /*
  * ===================== 内部辅助函数（建议实现为 static） =====================
- * 说明：此处先给出声明，便于后续 .c 文件按模块化实现。
  */
 
 /* unpred 扩容，至少保证可容纳 min_capacity 个元素 */
-int sz3_line_quantizer_reserve_unpred(SZ3LineQuantizerC *q, size_t min_capacity);
+static inline int sz3_line_quantizer_reserve_unpred(SZ3LineQuantizerC *q, size_t min_capacity);
 
 /* 向 unpred 末尾追加一个值 */
-int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float value);
+static inline int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float value);
+
+/* ===================== 内联实现 ===================== */
+
+static inline int sz3_line_quantizer_reserve_unpred(SZ3LineQuantizerC *q, size_t min_capacity) {
+    size_t new_capacity;
+    float *new_buf;
+
+    if (q == NULL) {
+        return -1;
+    }
+    if (q->unpred_capacity >= min_capacity) {
+        return 0;
+    }
+
+    new_capacity = (q->unpred_capacity == 0) ? 64u : q->unpred_capacity;
+    while (new_capacity < min_capacity) {
+        size_t doubled = new_capacity * 2u;
+        if (doubled < new_capacity) {
+            new_capacity = min_capacity;
+            break;
+        }
+        new_capacity = doubled;
+    }
+
+    new_buf = (float *)realloc(q->unpred, new_capacity * sizeof(float));
+    if (new_buf == NULL) {
+        return -1;
+    }
+
+    q->unpred = new_buf;
+    q->unpred_capacity = new_capacity;
+    return 0;
+}
+
+static inline int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float value) {
+    if (q == NULL) {
+        return -1;
+    }
+    if (sz3_line_quantizer_reserve_unpred(q, q->unpred_size + 1) != 0) {
+        return -1;
+    }
+    q->unpred[q->unpred_size++] = value;
+    return 0;
+}
+
+static inline int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori) {
+    return sz3_line_quantizer_push_unpred(q, ori) == 0 ? 0 : -1;
+}
+
+static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb) {
+    if (q == NULL) {
+        return;
+    }
+    if (eb == 0.0f) {
+        eb = 1.0f;
+    }
+
+    q->error_bound = eb;
+    q->error_bound_reciprocal = 1.0f / eb;
+    q->radius = r;
+    q->strict_eb = strict_eb;
+    q->uid = 0b10;
+
+    q->unpred = NULL;
+    q->unpred_size = 0;
+    q->unpred_capacity = 0;
+    q->index = 0;
+}
+
+static inline void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q) {
+    sz3_line_quantizer_init(q, 1.0f, 32768, true);
+}
+
+static inline float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q) {
+    return (q == NULL) ? 0.0f : q->error_bound;
+}
+
+static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb) {
+    if (q == NULL) {
+        return;
+    }
+    if (eb == 0.0f) {
+        eb = 1.0f;
+    }
+    q->error_bound = eb;
+    q->error_bound_reciprocal = 1.0f / eb;
+}
+
+static inline SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q) {
+    SZ3RangeI32 range;
+    range.min = 0;
+    range.max = (q == NULL) ? 0 : q->radius * 2;
+    return range;
+}
+
+static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q, float *data, float pred) {
+    float diff;
+    int64_t quant_index;
+    int half_index;
+    int quant_index_shifted;
+    float decompressed_data;
+
+    if (q == NULL || data == NULL) {
+        return 0;
+    }
+
+    diff = *data - pred;
+    quant_index = (int64_t)(fabsf(diff) * q->error_bound_reciprocal) + 1;
+    if (quant_index < (int64_t)q->radius * 2) {
+        quant_index >>= 1;
+        half_index = (int)quant_index;
+        quant_index <<= 1;
+
+        if (diff < 0) {
+            quant_index = -quant_index;
+            quant_index_shifted = q->radius - half_index;
+        } else {
+            quant_index_shifted = q->radius + half_index;
+        }
+
+        decompressed_data = pred + (float)quant_index * q->error_bound;
+        diff = fabsf(decompressed_data - *data);
+
+        if (diff <= q->error_bound || (!q->strict_eb && diff <= q->error_bound * 1.1f)) {
+            *data = decompressed_data;
+            return quant_index_shifted;
+        }
+    }
+
+    (void)sz3_line_quantizer_force_save_unpred(q, *data);
+    return 0;
+}
 
 #ifdef __cplusplus
 }
