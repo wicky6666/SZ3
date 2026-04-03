@@ -18,15 +18,16 @@ extern "C" {
 
 /* ---- 文本缓冲区依赖（用于 floatToBinary 的字符串输出） ---- */
 static inline void sz3_dep_strbuf_reset(char *buf, size_t cap) {
-    (void)buf;
-    (void)cap;
+    if (buf == NULL || cap == 0) return;
+    memset(buf, '0', cap - 1);
+    buf[cap - 1] = '\0';
 }
 
 static inline void sz3_dep_strbuf_set_char(char *buf, size_t cap, size_t idx, char ch) {
-    (void)buf;
-    (void)cap;
-    (void)idx;
-    (void)ch;
+    if (buf == NULL || cap == 0) return;
+    if (idx >= cap - 1) return;
+    buf[idx] = ch;
+    buf[cap - 1] = '\0';
 }
 
 /* ---- 可变长数组依赖（用于 vector2bytes/bytes2vector 的容器行为） ---- */
