@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -121,17 +123,81 @@ typedef struct SZ3HuffmanEncoderF32 {
  * ===================== 生命周期与配置 =====================
  */
 
+static inline unsigned char sz3_huffman_detect_sys_endian_type_f32(void) {
+    int x = 1;
+    const unsigned char *y = (const unsigned char *)&x;
+    return (*y == 1U) ? 0U : 1U;
+}
+
 /* 初始化编码器上下文（对标 C++ 构造函数） */
-void sz3_huffman_encoder_f32_init(SZ3HuffmanEncoderF32 *enc);
+static inline void sz3_huffman_encoder_f32_init(SZ3HuffmanEncoderF32 *enc) {
+    if (enc == NULL) return;
+    memset(enc, 0, sizeof(*enc));
+    enc->sys_endian_type = sz3_huffman_detect_sys_endian_type_f32();
+}
 
 /* 释放编码器内部资源（对标 C++ 析构 + SZ_FreeHuffman） */
 void sz3_huffman_encoder_f32_destroy(SZ3HuffmanEncoderF32 *enc);
 
 /* 创建 HuffmanTree（对标 createHuffmanTree） */
-SZ3HuffmanTreeF32 *sz3_huffman_tree_f32_create(int state_num);
+static inline SZ3HuffmanTreeF32 *sz3_huffman_tree_f32_create(int state_num) {
+    if (state_num <= 0) return NULL;
+
+    SZ3HuffmanTreeF32 *tree = (SZ3HuffmanTreeF32 *)malloc(sizeof(SZ3HuffmanTreeF32));
+    if (tree == NULL) return NULL;
+    memset(tree, 0, sizeof(*tree));
+
+    tree->state_num = (unsigned int)state_num;
+    tree->all_nodes = 2U * (unsigned int)state_num;
+
+    size_t node_cap = (size_t)tree->all_nodes * 2U;
+    tree->pool = (SZ3HuffmanNodeF32 *)calloc(node_cap, sizeof(SZ3HuffmanNodeF32));
+    tree->qqq = (SZ3HuffmanNodeF32 **)calloc(node_cap, sizeof(SZ3HuffmanNodeF32 *));
+    tree->code = (uint64_t **)calloc(tree->state_num, sizeof(uint64_t *));
+    tree->cout = (unsigned char *)calloc(tree->state_num, sizeof(unsigned char));
+
+    if (tree->pool == NULL || tree->qqq == NULL || tree->code == NULL || tree->cout == NULL) {
+        free(tree->pool);
+        free(tree->qqq);
+        free(tree->code);
+        free(tree->cout);
+        free(tree);
+        return NULL;
+    }
+
+    tree->qq = tree->qqq - 1;
+    tree->n_nodes = 0;
+    tree->n_inode = 0;
+    tree->qend = 1;
+    tree->max_bit_count = 0;
+    return tree;
+}
 
 /* 释放 HuffmanTree（C 风格公共接口） */
-void sz3_huffman_tree_f32_free(SZ3HuffmanTreeF32 *tree);
+static inline void sz3_huffman_tree_f32_free(SZ3HuffmanTreeF32 *tree) {
+    if (tree == NULL) return;
+
+    free(tree->pool);
+    tree->pool = NULL;
+
+    free(tree->qqq);
+    tree->qqq = NULL;
+    tree->qq = NULL;
+
+    if (tree->code != NULL) {
+        for (unsigned int i = 0; i < tree->state_num; i++) {
+            free(tree->code[i]);
+            tree->code[i] = NULL;
+        }
+    }
+    free(tree->code);
+    tree->code = NULL;
+
+    free(tree->cout);
+    tree->cout = NULL;
+
+    free(tree);
+}
 
 /*
  * ===================== 编码流程函数（对标 EncoderInterface） =====================
