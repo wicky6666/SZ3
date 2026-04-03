@@ -21,8 +21,9 @@ extern "C" {
 
 /* ---- 字节序与字节流读写（来自 ByteUtil / MemoryUtil 一类模块） ---- */
 static inline void sz3_dep_write_size_t(size_t value, unsigned char **dst) {
-    (void)value;
-    (void)dst;
+    if (dst == NULL || *dst == NULL) return;
+    memcpy(*dst, &value, sizeof(size_t));
+    *dst += sizeof(size_t);
 }
 
 static inline void sz3_dep_read_size_t(size_t *value, const unsigned char **src) {
@@ -44,13 +45,28 @@ static inline void sz3_dep_int32_to_bytes_big_endian(unsigned char *dst, int32_t
 }
 
 static inline int32_t sz3_dep_bytes_to_int32_big_endian(const unsigned char *src) {
-    (void)src;
-    return 0;
+    if (src == NULL) return 0;
+    int32_t res = 0;
+    res |= (int32_t)src[0];
+    res <<= 8;
+    res |= (int32_t)src[1];
+    res <<= 8;
+    res |= (int32_t)src[2];
+    res <<= 8;
+    res |= (int32_t)src[3];
+    return res;
 }
 
 static inline void sz3_dep_int64_to_bytes_big_endian(unsigned char *dst, uint64_t value) {
-    (void)dst;
-    (void)value;
+    if (dst == NULL) return;
+    dst[0] = (unsigned char)(value >> 56);
+    dst[1] = (unsigned char)(value >> 48);
+    dst[2] = (unsigned char)(value >> 40);
+    dst[3] = (unsigned char)(value >> 32);
+    dst[4] = (unsigned char)(value >> 24);
+    dst[5] = (unsigned char)(value >> 16);
+    dst[6] = (unsigned char)(value >> 8);
+    dst[7] = (unsigned char)(value);
 }
 
 /* ---- 统计/哈希频次模块（用于统计 float 出现频次） ---- */
@@ -214,13 +230,13 @@ static inline int sz3_huffman_encoder_f32_preprocess_encode(SZ3HuffmanEncoderF32
 void sz3_huffman_encoder_f32_save(const SZ3HuffmanEncoderF32 *enc, unsigned char **c);
 
 /* 估算树与元数据大小（对标 size_est） */
-size_t sz3_huffman_encoder_f32_size_est(const SZ3HuffmanEncoderF32 *enc);
+static inline size_t sz3_huffman_encoder_f32_size_est(const SZ3HuffmanEncoderF32 *enc);
 
 /* 执行编码（对标 encode） */
-size_t sz3_huffman_encoder_f32_encode(const SZ3HuffmanEncoderF32 *enc,
-                                      const float *bins,
-                                      size_t num_bin,
-                                      unsigned char **bytes);
+static inline size_t sz3_huffman_encoder_f32_encode(const SZ3HuffmanEncoderF32 *enc,
+                                                    const float *bins,
+                                                    size_t num_bin,
+                                                    unsigned char **bytes);
 
 /* 编码后清理（对标 postprocess_encode） */
 static inline void sz3_huffman_encoder_f32_postprocess_encode(SZ3HuffmanEncoderF32 *enc);
@@ -534,6 +550,100 @@ static inline int sz3_huffman_encoder_f32_preprocess_encode(SZ3HuffmanEncoderF32
 static inline void sz3_huffman_encoder_f32_postprocess_encode(SZ3HuffmanEncoderF32 *enc) {
     /* 编码完成后释放 Huffman 内部内存。 */
     sz3_huffman_free_internal_f32(enc);
+}
+
+static inline size_t sz3_huffman_encoder_f32_size_est(const SZ3HuffmanEncoderF32 *enc) {
+    if (enc == NULL) return 0;
+    size_t node_count = enc->node_count;
+    size_t b = (node_count <= 256U) ? sizeof(unsigned char)
+                                    : ((node_count <= 65536U) ? sizeof(unsigned short) : sizeof(unsigned int));
+    return 1U + 2U * node_count * b + node_count * sizeof(unsigned char) + node_count * sizeof(float) +
+           sizeof(int) + sizeof(int) + sizeof(float);
+}
+
+static inline size_t sz3_huffman_encoder_f32_encode(const SZ3HuffmanEncoderF32 *enc,
+                                                    const float *bins,
+                                                    size_t num_bin,
+                                                    unsigned char **bytes) {
+    if (enc == NULL || bins == NULL || num_bin == 0 || bytes == NULL || *bytes == NULL) return 0;
+    if (enc->tree == NULL || enc->tree->cout == NULL || enc->tree->code == NULL) return 0;
+
+    size_t out_size = 0;
+    unsigned char *p = *bytes + sizeof(size_t);
+    int lack_bits = 0;
+
+    for (size_t i = 0; i < num_bin; i++) {
+        int state = (int)(bins[i] - enc->offset);
+        if (state < 0 || (unsigned int)state >= enc->tree->state_num) return 0;
+        if (enc->tree->code[state] == NULL) return 0;
+
+        unsigned char bit_size = enc->tree->cout[state];
+        unsigned char byte_size = 0;
+        unsigned char byte_size_p;
+
+        if (lack_bits == 0) {
+            byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U) : (unsigned char)(bit_size / 8U + 1U);
+            byte_size_p = (unsigned char)(bit_size / 8U);
+
+            if (byte_size <= 8U) {
+                sz3_dep_int64_to_bytes_big_endian(p, enc->tree->code[state][0]);
+                p += byte_size_p;
+            } else {
+                sz3_dep_int64_to_bytes_big_endian(p, enc->tree->code[state][0]);
+                p += 8;
+                sz3_dep_int64_to_bytes_big_endian(p, enc->tree->code[state][1]);
+                p += (byte_size_p - 8U);
+            }
+            out_size += byte_size;
+            lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
+        } else {
+            *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - lack_bits)));
+            if (lack_bits < bit_size) {
+                p++;
+                uint64_t new_code = enc->tree->code[state][0] << lack_bits;
+                sz3_dep_int64_to_bytes_big_endian(p, new_code);
+
+                if (bit_size <= 64U) {
+                    bit_size = (unsigned char)(bit_size - (unsigned char)lack_bits);
+                    byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U)
+                                                      : (unsigned char)(bit_size / 8U + 1U);
+                    byte_size_p = (unsigned char)(bit_size / 8U);
+                    p += byte_size_p;
+                    out_size += byte_size;
+                    lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
+                } else {
+                    byte_size_p = 7U;
+                    p += byte_size_p;
+                    out_size += byte_size;
+
+                    bit_size = (unsigned char)(bit_size - 64U);
+                    if (lack_bits < bit_size) {
+                        *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - lack_bits)));
+                        p++;
+                        new_code = enc->tree->code[state][1] << lack_bits;
+                        sz3_dep_int64_to_bytes_big_endian(p, new_code);
+                        bit_size = (unsigned char)(bit_size - (unsigned char)lack_bits);
+                        byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U)
+                                                          : (unsigned char)(bit_size / 8U + 1U);
+                        byte_size_p = (unsigned char)(bit_size / 8U);
+                        p += byte_size_p;
+                        out_size += byte_size;
+                        lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
+                    } else {
+                        *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - bit_size)));
+                        lack_bits -= bit_size;
+                    }
+                }
+            } else {
+                lack_bits -= bit_size;
+                if (lack_bits == 0) p++;
+            }
+        }
+    }
+
+    sz3_dep_write_size_t(out_size, bytes);
+    *bytes += out_size;
+    return out_size;
 }
 
 static inline void sz3_huffman_free_internal_f32(SZ3HuffmanEncoderF32 *enc) {
