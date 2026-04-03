@@ -18,17 +18,17 @@ extern "C" {
  */
 static inline void sz3_nonlinear_quantizer_prepare(void) {}
 
-static inline int sz3_nonlinear_quantizer_quantize(double data, double pred, double *dec_data) {
+static inline int sz3_nonlinear_quantizer_quantize(float data, float pred, float *dec_data) {
     (void)data;
     (void)pred;
     (void)dec_data;
     return 0;
 }
 
-static inline double sz3_nonlinear_quantizer_recover(double pred, int quant_index) {
+static inline float sz3_nonlinear_quantizer_recover(float pred, int quant_index) {
     (void)pred;
     (void)quant_index;
-    return 0.0;
+    return 0.0f;
 }
 
 static inline void sz3_nonlinear_quantizer_release(void) {}
@@ -46,13 +46,12 @@ typedef struct SZ3RangeI32 {
 /*
  * Line Quantizer 主结构体（对标 LinearQuantizer<T>）
  * 说明：
- * - 当前使用 double 存储 unpred，便于先完整映射行为；
- * - 若后续需要支持 float/int 等类型，可扩展为宏生成或 void* + elem_size 方案。
+ * - 当前仅考虑 float 类型压缩数据。
  */
 typedef struct SZ3LineQuantizerC {
     /* 量化误差控制参数 */
-    double error_bound;
-    double error_bound_reciprocal;
+    float error_bound;
+    float error_bound_reciprocal;
 
     /* 量化半径（对应 C++ radius） */
     int radius;
@@ -64,7 +63,7 @@ typedef struct SZ3LineQuantizerC {
     uint8_t uid;
 
     /* 不可预测值缓冲区（对应 std::vector<T> unpred） */
-    double *unpred;
+    float *unpred;
     size_t unpred_size;
     size_t unpred_capacity;
 
@@ -79,8 +78,8 @@ typedef struct SZ3LineQuantizerC {
 /* 默认初始化：error_bound=1, radius=32768, strict_eb=true */
 void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q);
 
-/* 参数初始化：对标 C++ 构造函数 LinearQuantizer(double eb, int r, bool strict) */
-void sz3_line_quantizer_init(SZ3LineQuantizerC *q, double eb, int r, bool strict_eb);
+/* 参数初始化：对标 C++ 构造函数 LinearQuantizer(float eb, int r, bool strict) */
+void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb);
 
 /* 释放内部资源（主要是 unpred 缓冲区） */
 void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
@@ -93,10 +92,10 @@ void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
  */
 
 /* 获取误差界（对标 get_eb） */
-double sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
+float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
 
 /* 设置误差界并刷新倒数（对标 set_eb） */
-void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, double eb);
+void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb);
 
 /* 获取输出索引范围（对标 get_out_range，范围为 [0, radius * 2]） */
 SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
@@ -110,23 +109,23 @@ SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
  * - 入参 data 为“原始值”，函数内会在可预测时覆写为“解压重建值”；
  * - 返回量化索引，返回 0 表示不可预测并写入 unpred。
  */
-int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q, double *data, double pred);
+int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q, float *data, float pred);
 
 /*
  * 根据量化索引恢复数据（对标 recover）
  * - quant_index != 0：走预测恢复；
  * - quant_index == 0：从 unpred 按顺序读取。
  */
-double sz3_line_quantizer_recover(SZ3LineQuantizerC *q, double pred, int quant_index);
+float sz3_line_quantizer_recover(SZ3LineQuantizerC *q, float pred, int quant_index);
 
 /* 预测值路径恢复（对标 recover_pred） */
-double sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, double pred, int quant_index);
+float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, float pred, int quant_index);
 
 /* 不可预测值路径恢复（对标 recover_unpred） */
-double sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q);
+float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q);
 
 /* 强制将原值作为不可预测值保存（对标 force_save_unpred） */
-int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, double ori);
+int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori);
 
 /*
  * ===================== 序列化与统计函数 =====================
@@ -160,7 +159,7 @@ void sz3_line_quantizer_print(const SZ3LineQuantizerC *q, FILE *out);
 int sz3_line_quantizer_reserve_unpred(SZ3LineQuantizerC *q, size_t min_capacity);
 
 /* 向 unpred 末尾追加一个值 */
-int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, double value);
+int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float value);
 
 #ifdef __cplusplus
 }
