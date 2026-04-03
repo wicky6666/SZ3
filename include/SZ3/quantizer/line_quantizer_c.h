@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #ifdef __cplusplus
@@ -84,7 +85,7 @@ static inline void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q);
 static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb);
 
 /* 释放内部资源（主要是 unpred 缓冲区） */
-void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
+static inline void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
 
 /* 清空运行态数据但保留配置参数 */
 void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
@@ -118,13 +119,13 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
  * - quant_index != 0：走预测恢复；
  * - quant_index == 0：从 unpred 按顺序读取。
  */
-float sz3_line_quantizer_recover(SZ3LineQuantizerC *q, float pred, int quant_index);
+static inline float sz3_line_quantizer_recover(SZ3LineQuantizerC *q, float pred, int quant_index);
 
 /* 预测值路径恢复（对标 recover_pred） */
-float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, float pred, int quant_index);
+static inline float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, float pred, int quant_index);
 
 /* 不可预测值路径恢复（对标 recover_unpred） */
-float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q);
+static inline float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q);
 
 /* 强制将原值作为不可预测值保存（对标 force_save_unpred） */
 static inline int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori);
@@ -134,23 +135,23 @@ static inline int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, flo
  */
 
 /* 估算 unpred 存储大小（字节数，对标 size_est） */
-size_t sz3_line_quantizer_size_est(const SZ3LineQuantizerC *q);
+static inline size_t sz3_line_quantizer_size_est(const SZ3LineQuantizerC *q);
 
 /*
  * 保存到字节流（对标 save）
  * - c 为可写指针，写入后按已写入长度向后移动。
  */
-void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned char **c);
+static inline void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned char **c);
 
 /*
  * 从字节流加载（对标 load）
  * - c 为只读指针，读取后按已读取长度向后移动；
  * - remaining_length 会按读取量递减。
  */
-void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned char **c, size_t *remaining_length);
+static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned char **c, size_t *remaining_length);
 
 /* 打印状态信息（对标 print） */
-void sz3_line_quantizer_print(const SZ3LineQuantizerC *q, FILE *out);
+static inline void sz3_line_quantizer_print(const SZ3LineQuantizerC *q);
 
 /*
  * ===================== 内部辅助函数（建议实现为 static） =====================
@@ -208,6 +209,17 @@ static inline int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float val
 
 static inline int sz3_line_quantizer_force_save_unpred(SZ3LineQuantizerC *q, float ori) {
     return sz3_line_quantizer_push_unpred(q, ori) == 0 ? 0 : -1;
+}
+
+static inline void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q) {
+    if (q == NULL) {
+        return;
+    }
+    free(q->unpred);
+    q->unpred = NULL;
+    q->unpred_size = 0;
+    q->unpred_capacity = 0;
+    q->index = 0;
 }
 
 static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb) {
@@ -292,6 +304,137 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
 
     (void)sz3_line_quantizer_force_save_unpred(q, *data);
     return 0;
+}
+
+static inline float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, float pred, int quant_index) {
+    if (q == NULL) {
+        return pred;
+    }
+    return pred + 2.0f * (float)(quant_index - q->radius) * q->error_bound;
+}
+
+static inline float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q) {
+    if (q == NULL || q->unpred == NULL || q->index >= q->unpred_size) {
+        return 0.0f;
+    }
+    return q->unpred[q->index++];
+}
+
+static inline float sz3_line_quantizer_recover(SZ3LineQuantizerC *q, float pred, int quant_index) {
+    if (quant_index != 0) {
+        return sz3_line_quantizer_recover_pred(q, pred, quant_index);
+    }
+    return sz3_line_quantizer_recover_unpred(q);
+}
+
+static inline size_t sz3_line_quantizer_size_est(const SZ3LineQuantizerC *q) {
+    if (q == NULL) {
+        return 0;
+    }
+    return q->unpred_size * sizeof(float);
+}
+
+static inline void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned char **c) {
+    size_t unpred_size;
+    if (q == NULL || c == NULL || *c == NULL) {
+        return;
+    }
+
+    *(*c)++ = q->uid;
+
+    memcpy(*c, &q->error_bound, sizeof(float));
+    *c += sizeof(float);
+
+    memcpy(*c, &q->radius, sizeof(int));
+    *c += sizeof(int);
+
+    unpred_size = q->unpred_size;
+    memcpy(*c, &unpred_size, sizeof(size_t));
+    *c += sizeof(size_t);
+
+    if (unpred_size > 0 && q->unpred != NULL) {
+        size_t data_bytes = unpred_size * sizeof(float);
+        memcpy(*c, q->unpred, data_bytes);
+        *c += data_bytes;
+    }
+}
+
+static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned char **c, size_t *remaining_length) {
+    uint8_t uid_read;
+    float error_bound_read;
+    int radius_read;
+    size_t unpred_size_read;
+    size_t data_bytes;
+    float *new_unpred = NULL;
+
+    if (q == NULL || c == NULL || *c == NULL || remaining_length == NULL) {
+        return;
+    }
+
+    if (*remaining_length < sizeof(uint8_t)) {
+        return;
+    }
+    uid_read = **c;
+    (*c)++;
+    *remaining_length -= sizeof(uint8_t);
+    if (uid_read != q->uid) {
+        return;
+    }
+
+    if (*remaining_length < sizeof(float) + sizeof(int) + sizeof(size_t)) {
+        return;
+    }
+
+    memcpy(&error_bound_read, *c, sizeof(float));
+    *c += sizeof(float);
+    *remaining_length -= sizeof(float);
+
+    memcpy(&radius_read, *c, sizeof(int));
+    *c += sizeof(int);
+    *remaining_length -= sizeof(int);
+
+    memcpy(&unpred_size_read, *c, sizeof(size_t));
+    *c += sizeof(size_t);
+    *remaining_length -= sizeof(size_t);
+
+    if (unpred_size_read > SIZE_MAX / sizeof(float)) {
+        return;
+    }
+    data_bytes = unpred_size_read * sizeof(float);
+    if (*remaining_length < data_bytes) {
+        return;
+    }
+
+    if (unpred_size_read > 0) {
+        new_unpred = (float *)malloc(data_bytes);
+        if (new_unpred == NULL) {
+            return;
+        }
+        memcpy(new_unpred, *c, data_bytes);
+    }
+
+    *c += data_bytes;
+    *remaining_length -= data_bytes;
+
+    q->error_bound = error_bound_read;
+    q->error_bound_reciprocal = 1.0f / error_bound_read;
+    q->radius = radius_read;
+    if (unpred_size_read > 0) {
+        free(q->unpred);
+        q->unpred = new_unpred;
+        q->unpred_size = unpred_size_read;
+        q->unpred_capacity = unpred_size_read;
+    }
+    q->index = 0;
+}
+
+static inline void sz3_line_quantizer_print(const SZ3LineQuantizerC *q) {
+    if (q == NULL) {
+        printf("[LineQuantizerC] (null)\n");
+        return;
+    }
+    printf("[LinearQuantizer] error_bound = %.8G, radius = %d, unpred = %zu\n", q->error_bound, q->radius,
+           q->unpred_size);
 }
 
 #ifdef __cplusplus
