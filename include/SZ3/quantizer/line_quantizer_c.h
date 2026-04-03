@@ -279,13 +279,16 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
         return 0;
     }
 
+    /* 1) 计算当前样本与预测值的差值，并根据误差界估计量化索引 */
     diff = *data - pred;
     quant_index = (int64_t)(fabsf(diff) * q->error_bound_reciprocal) + 1;
     if (quant_index < (int64_t)q->radius * 2) {
+        /* 2) 将索引映射到偶数步长量化网格，并保留一半索引用于编码 */
         quant_index >>= 1;
         half_index = (int)quant_index;
         quant_index <<= 1;
 
+        /* 3) 根据误差正负决定编码方向，同时生成带 radius 偏移的编码值 */
         if (diff < 0) {
             quant_index = -quant_index;
             quant_index_shifted = q->radius - half_index;
@@ -293,15 +296,18 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
             quant_index_shifted = q->radius + half_index;
         }
 
+        /* 4) 重建量化后的数据，校验是否满足严格/宽松误差界 */
         decompressed_data = pred + (float)quant_index * q->error_bound;
         diff = fabsf(decompressed_data - *data);
 
         if (diff <= q->error_bound || (!q->strict_eb && diff <= q->error_bound * 1.1f)) {
+            /* 5) 可量化：回写重建值并返回对应量化索引 */
             *data = decompressed_data;
             return quant_index_shifted;
         }
     }
 
+    /* 6) 不可量化：按原值写入 unpredictable 缓冲并返回 0 */
     (void)sz3_line_quantizer_force_save_unpred(q, *data);
     return 0;
 }
