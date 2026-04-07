@@ -178,6 +178,12 @@ static inline double sz3_interp_decomp_interpolation(SZ3InterpolationDecompositi
                                                      size_t stride,
                                                      void *user_data);
 
+typedef struct SZ3InterpQuantizeCtxC {
+    SZ3InterpolationDecompositionC *ctx;
+} SZ3InterpQuantizeCtxC;
+
+static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, float pred, void *user_data);
+
 /*
  * ===================== 内联实现 =====================
  */
@@ -191,6 +197,9 @@ static inline void sz3_interp_decomp_init(SZ3InterpolationDecompositionC *ctx,
     }
     memset(ctx, 0, sizeof(*ctx));
     ctx->n = conf->num_dims;
+    if (ctx->n > SZ3_INTERP_MAX_DIMS) {
+        ctx->n = SZ3_INTERP_MAX_DIMS;
+    }
     ctx->interp_id = conf->interp_algo;
     ctx->direction_sequence_id = conf->interp_direction;
     ctx->anchor_stride = conf->interp_anchor_stride;
@@ -219,6 +228,12 @@ static inline void sz3_interp_decomp_destroy(SZ3InterpolationDecompositionC *ctx
 
 static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC *ctx) {
     uint32_t i;
+    int used[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    int perm[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    int top = 0;
+    int next_choice[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    int produced = 0;
+    int use_anchor = 0;
     if (ctx == NULL || ctx->n == 0 || ctx->n > SZ3_INTERP_MAX_DIMS) {
         return;
     }
@@ -235,7 +250,19 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
         if (level > ctx->interp_level) {
             ctx->interp_level = level;
         }
+        if (ctx->anchor_stride > 0 && d > ctx->anchor_stride) {
+            use_anchor = 1;
+        }
         ctx->num_elements *= d;
+    }
+    if (!use_anchor) {
+        ctx->anchor_stride = 0;
+    }
+    if (ctx->anchor_stride > 0) {
+        int max_interpolation_level = (int)log2((double)ctx->anchor_stride) + 1;
+        if (max_interpolation_level <= ctx->interp_level) {
+            ctx->interp_level = max_interpolation_level;
+        }
     }
 
     ctx->original_dim_offsets[ctx->n - 1] = 1;
@@ -243,11 +270,51 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
         ctx->original_dim_offsets[i - 1] = ctx->original_dim_offsets[i] * ctx->original_dimensions[i];
     }
 
-    /* 未完整实现：当前仅填入自然顺序，尚未生成与 C++ 对齐的全排列维序集合。 */
-    ctx->dim_sequence_count = 1;
-    for (i = 0; i < ctx->n; i++) {
-        ctx->dim_sequences[0][i] = (int)i;
+    /* 生成与 C++ 实现一致的维度顺序全排列（最多 4! = 24）。 */
+    while (top >= 0) {
+        int c;
+        if (top == (int)ctx->n) {
+            for (i = 0; i < ctx->n; i++) {
+                ctx->dim_sequences[produced][i] = perm[i];
+            }
+            produced++;
+            top--;
+            if (top >= 0) {
+                used[perm[top]] = 0;
+            }
+            continue;
+        }
+        c = next_choice[top];
+        while (c < (int)ctx->n && used[c]) {
+            c++;
+        }
+        if (c < (int)ctx->n) {
+            next_choice[top] = c + 1;
+            perm[top] = c;
+            used[c] = 1;
+            top++;
+            if (top < (int)ctx->n) {
+                next_choice[top] = 0;
+            }
+        } else {
+            next_choice[top] = 0;
+            top--;
+            if (top >= 0) {
+                used[perm[top]] = 0;
+            }
+        }
     }
+    ctx->dim_sequence_count = produced;
+}
+
+static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, float pred, void *user_data) {
+    SZ3InterpQuantizeCtxC *qctx = (SZ3InterpQuantizeCtxC *)user_data;
+    if (qctx == NULL || qctx->ctx == NULL || d == NULL) {
+        return;
+    }
+    qctx->ctx->quant_inds[qctx->ctx->quant_index++] =
+        sz3_line_quantizer_quantize_and_overwrite(&qctx->ctx->quantizer, d, pred);
+    (void)idx;
 }
 
 static inline void sz3_interp_decomp_build_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data) {
@@ -358,15 +425,14 @@ static inline double sz3_interp_decomp_interpolation(SZ3InterpolationDecompositi
                                                      int direction,
                                                      size_t stride,
                                                      void *user_data) {
-    (void)ctx;
-    (void)data;
-    (void)begin;
-    (void)end;
-    (void)interp_id;
-    (void)cb;
+    if (ctx == NULL || data == NULL || begin == NULL || end == NULL || cb == NULL || stride == 0) {
+        return 0.0;
+    }
+    if (ctx->n == 1) {
+        return sz3_interp_decomp_interpolation_1d(ctx, data, begin[0], end[0], stride, interp_id, cb, user_data);
+    }
+    /* 暂未处理 2D/3D/4D 分支；后续可按 C++ 原实现补齐维序遍历与 fastest-dim 调度逻辑。 */
     (void)direction;
-    (void)stride;
-    (void)user_data;
     return 0.0;
 }
 
@@ -417,8 +483,12 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
                                               float *data,
                                               size_t *out_count) {
     double eb;
-    (void)data;
-    if (ctx == NULL || conf == NULL || out_count == NULL) {
+    double cur_eb;
+    int level;
+    size_t dims_begin[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    size_t dims_end[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    SZ3InterpQuantizeCtxC qctx;
+    if (ctx == NULL || conf == NULL || out_count == NULL || data == NULL) {
         return NULL;
     }
 
@@ -427,15 +497,64 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     ctx->anchor_stride = conf->interp_anchor_stride;
     ctx->eb_alpha = conf->interp_alpha;
     ctx->eb_beta = conf->interp_beta;
-    memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * conf->num_dims);
+    ctx->n = conf->num_dims;
+    if (ctx->n > SZ3_INTERP_MAX_DIMS) {
+        ctx->n = SZ3_INTERP_MAX_DIMS;
+    }
+    memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
 
     sz3_interp_decomp_init_runtime(ctx);
     eb = (double)sz3_line_quantizer_get_eb(&ctx->quantizer);
-    (void)eb;
+    free(ctx->quant_inds);
+    ctx->quant_inds = NULL;
+    ctx->quant_inds = (int *)malloc(ctx->num_elements * sizeof(int));
+    if (ctx->quant_inds == NULL) {
+        *out_count = 0;
+        return NULL;
+    }
 
-    /* 未完整实现：当前只返回零初始化索引缓冲，尚未执行分层插值、逐点量化和块遍历。 */
+    if (ctx->anchor_stride == 0) {
+        ctx->quant_inds[ctx->quant_index++] = sz3_line_quantizer_quantize_and_overwrite(&ctx->quantizer, data, 0.0f);
+    } else {
+        sz3_interp_decomp_build_anchor_grid(ctx, data);
+        ctx->interp_level--;
+    }
+
+    qctx.ctx = ctx;
+    for (level = ctx->interp_level; level > 0; level--) {
+        size_t stride = ((size_t)1) << ((size_t)level - 1u);
+        size_t interp_block_size = (size_t)ctx->blocksize * stride;
+        size_t block_begin;
+        cur_eb = eb;
+        if (ctx->eb_alpha < 0) {
+            cur_eb = (level >= 3) ? (eb * ctx->eb_ratio) : eb;
+        } else if (ctx->eb_alpha >= 1) {
+            double cur_ratio = pow(ctx->eb_alpha, (double)level - 1.0);
+            if (cur_ratio > ctx->eb_beta) {
+                cur_ratio = ctx->eb_beta;
+            }
+            cur_eb = eb / cur_ratio;
+        }
+        sz3_line_quantizer_set_eb(&ctx->quantizer, (float)cur_eb);
+
+        if (ctx->n != 1) {
+            /* 暂未处理多维块遍历压缩。 */
+            continue;
+        }
+        for (block_begin = 0; block_begin < ctx->original_dimensions[0]; block_begin += interp_block_size) {
+            dims_begin[0] = block_begin;
+            dims_end[0] = block_begin + interp_block_size;
+            if (dims_end[0] > ctx->original_dimensions[0] - 1) {
+                dims_end[0] = ctx->original_dimensions[0] - 1;
+            }
+            sz3_interp_decomp_interpolation(ctx, data, dims_begin, dims_end, ctx->interp_id,
+                                            sz3_interp_quantize_and_overwrite_cb, ctx->direction_sequence_id, stride,
+                                            &qctx);
+        }
+    }
+    sz3_line_quantizer_set_eb(&ctx->quantizer, (float)eb);
     *out_count = ctx->num_elements;
-    return (int *)calloc(ctx->num_elements, sizeof(int));
+    return ctx->quant_inds;
 }
 
 static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC *ctx,
