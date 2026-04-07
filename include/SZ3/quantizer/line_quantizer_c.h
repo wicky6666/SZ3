@@ -88,7 +88,7 @@ static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r
 static inline void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
 
 /* 清空运行态数据但保留配置参数 */
-void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
+static inline void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
 
 /*
  * ===================== 参数访问函数 =====================
@@ -219,6 +219,18 @@ static inline void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q) {
     q->unpred = NULL;
     q->unpred_size = 0;
     q->unpred_capacity = 0;
+    q->index = 0;
+}
+
+static inline void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q) {
+    if (q == NULL) {
+        return;
+    }
+    /*
+     * 占位实现：
+     * 仅重置运行时缓冲与游标，保留误差界/radius/strict_eb 等配置参数。
+     */
+    q->unpred_size = 0;
     q->index = 0;
 }
 

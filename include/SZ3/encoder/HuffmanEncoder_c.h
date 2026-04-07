@@ -227,7 +227,7 @@ static inline int sz3_huffman_encoder_f32_preprocess_encode(SZ3HuffmanEncoderF32
                                                             int state_num_hint);
 
 /* 保存 Huffman 树到输出流（对标 save） */
-void sz3_huffman_encoder_f32_save(const SZ3HuffmanEncoderF32 *enc, unsigned char **c);
+static inline void sz3_huffman_encoder_f32_save(const SZ3HuffmanEncoderF32 *enc, unsigned char **c);
 
 /* 估算树与元数据大小（对标 size_est） */
 static inline size_t sz3_huffman_encoder_f32_size_est(const SZ3HuffmanEncoderF32 *enc);
@@ -242,26 +242,26 @@ static inline size_t sz3_huffman_encoder_f32_encode(const SZ3HuffmanEncoderF32 *
 static inline void sz3_huffman_encoder_f32_postprocess_encode(SZ3HuffmanEncoderF32 *enc);
 
 /* 解码前预处理（对标 preprocess_decode） */
-void sz3_huffman_encoder_f32_preprocess_decode(SZ3HuffmanEncoderF32 *enc);
+static inline void sz3_huffman_encoder_f32_preprocess_decode(SZ3HuffmanEncoderF32 *enc);
 
 /* 执行解码（对标 decode）
  * 返回值：0 表示成功，非 0 表示失败。
  */
-int sz3_huffman_encoder_f32_decode(SZ3HuffmanEncoderF32 *enc,
-                                   const unsigned char **bytes,
-                                   size_t target_length,
-                                   float *out_values);
+static inline int sz3_huffman_encoder_f32_decode(SZ3HuffmanEncoderF32 *enc,
+                                                 const unsigned char **bytes,
+                                                 size_t target_length,
+                                                 float *out_values);
 
 /* 解码后清理（对标 postprocess_decode） */
-void sz3_huffman_encoder_f32_postprocess_decode(SZ3HuffmanEncoderF32 *enc);
+static inline void sz3_huffman_encoder_f32_postprocess_decode(SZ3HuffmanEncoderF32 *enc);
 
 /* 从输入流加载 Huffman 树（对标 load） */
-int sz3_huffman_encoder_f32_load(SZ3HuffmanEncoderF32 *enc,
-                                 const unsigned char **c,
-                                 size_t *remaining_length);
+static inline int sz3_huffman_encoder_f32_load(SZ3HuffmanEncoderF32 *enc,
+                                                const unsigned char **c,
+                                                size_t *remaining_length);
 
 /* 查询是否已成功 load（对标 isLoaded） */
-bool sz3_huffman_encoder_f32_is_loaded(const SZ3HuffmanEncoderF32 *enc);
+static inline bool sz3_huffman_encoder_f32_is_loaded(const SZ3HuffmanEncoderF32 *enc);
 
 /*
  * ===================== 内部算法函数（按函数级从 C++ 私有函数平移） =====================
@@ -270,9 +270,9 @@ bool sz3_huffman_encoder_f32_is_loaded(const SZ3HuffmanEncoderF32 *enc);
  * - 头文件里先统一声明，方便后续逐个实现。
  */
 
-SZ3HuffmanNodeF32 *sz3_huffman_reconstruct_tree_from_bytes_any_states_f32(SZ3HuffmanEncoderF32 *enc,
-                                                                           const unsigned char *bytes,
-                                                                           unsigned int node_count);
+static inline SZ3HuffmanNodeF32 *sz3_huffman_reconstruct_tree_from_bytes_any_states_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                                          const unsigned char *bytes,
+                                                                                          unsigned int node_count);
 
 static inline SZ3HuffmanNodeF32 *sz3_huffman_new_node_f32(SZ3HuffmanEncoderF32 *enc,
                                                           size_t freq,
@@ -280,9 +280,9 @@ static inline SZ3HuffmanNodeF32 *sz3_huffman_new_node_f32(SZ3HuffmanEncoderF32 *
                                                           SZ3HuffmanNodeF32 *left,
                                                           SZ3HuffmanNodeF32 *right);
 
-SZ3HuffmanNodeF32 *sz3_huffman_new_node2_f32(SZ3HuffmanEncoderF32 *enc,
-                                             float symbol,
-                                             unsigned char is_leaf);
+static inline SZ3HuffmanNodeF32 *sz3_huffman_new_node2_f32(SZ3HuffmanEncoderF32 *enc,
+                                                            float symbol,
+                                                            unsigned char is_leaf);
 
 static inline void sz3_huffman_qinsert_f32(SZ3HuffmanEncoderF32 *enc, SZ3HuffmanNodeF32 *node);
 static inline SZ3HuffmanNodeF32 *sz3_huffman_qremove_f32(SZ3HuffmanEncoderF32 *enc);
@@ -295,65 +295,65 @@ static inline void sz3_huffman_build_code_f32(SZ3HuffmanEncoderF32 *enc,
 
 static inline int sz3_huffman_init_f32(SZ3HuffmanEncoderF32 *enc, const float *input, size_t length);
 
-void sz3_huffman_pad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
-                                 uint8_t *L,
-                                 uint8_t *R,
-                                 float *C,
-                                 unsigned char *t,
-                                 unsigned int i,
-                                 SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_pad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                uint8_t *L,
+                                                uint8_t *R,
+                                                float *C,
+                                                unsigned char *t,
+                                                unsigned int i,
+                                                SZ3HuffmanNodeF32 *root);
 
-void sz3_huffman_pad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
-                                  uint16_t *L,
-                                  uint16_t *R,
-                                  float *C,
-                                  unsigned char *t,
-                                  unsigned int i,
-                                  SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_pad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                 uint16_t *L,
+                                                 uint16_t *R,
+                                                 float *C,
+                                                 unsigned char *t,
+                                                 unsigned int i,
+                                                 SZ3HuffmanNodeF32 *root);
 
-void sz3_huffman_pad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
-                                  uint32_t *L,
-                                  uint32_t *R,
-                                  float *C,
-                                  unsigned char *t,
-                                  unsigned int i,
-                                  SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_pad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                 uint32_t *L,
+                                                 uint32_t *R,
+                                                 float *C,
+                                                 unsigned char *t,
+                                                 unsigned int i,
+                                                 SZ3HuffmanNodeF32 *root);
 
-void sz3_huffman_unpad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
-                                   const uint8_t *L,
-                                   const uint8_t *R,
-                                   const float *C,
-                                   const unsigned char *t,
-                                   unsigned int i,
-                                   SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_unpad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                  const uint8_t *L,
+                                                  const uint8_t *R,
+                                                  const float *C,
+                                                  const unsigned char *t,
+                                                  unsigned int i,
+                                                  SZ3HuffmanNodeF32 *root);
 
-void sz3_huffman_unpad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
-                                    const uint16_t *L,
-                                    const uint16_t *R,
-                                    const float *C,
-                                    const unsigned char *t,
-                                    unsigned int i,
-                                    SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_unpad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                   const uint16_t *L,
+                                                   const uint16_t *R,
+                                                   const float *C,
+                                                   const unsigned char *t,
+                                                   unsigned int i,
+                                                   SZ3HuffmanNodeF32 *root);
 
-void sz3_huffman_unpad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
-                                    const uint32_t *L,
-                                    const uint32_t *R,
-                                    const float *C,
-                                    const unsigned char *t,
-                                    unsigned int i,
-                                    SZ3HuffmanNodeF32 *root);
+static inline void sz3_huffman_unpad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                   const uint32_t *L,
+                                                   const uint32_t *R,
+                                                   const float *C,
+                                                   const unsigned char *t,
+                                                   unsigned int i,
+                                                   SZ3HuffmanNodeF32 *root);
 
-unsigned int sz3_huffman_convert_tree_to_bytes_u8_f32(SZ3HuffmanEncoderF32 *enc,
-                                                       unsigned int node_count,
-                                                       unsigned char *out);
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                     unsigned int node_count,
+                                                                     unsigned char *out);
 
-unsigned int sz3_huffman_convert_tree_to_bytes_u16_f32(SZ3HuffmanEncoderF32 *enc,
-                                                        unsigned int node_count,
-                                                        unsigned char *out);
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                      unsigned int node_count,
+                                                                      unsigned char *out);
 
-unsigned int sz3_huffman_convert_tree_to_bytes_u32_f32(SZ3HuffmanEncoderF32 *enc,
-                                                        unsigned int node_count,
-                                                        unsigned char *out);
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                      unsigned int node_count,
+                                                                      unsigned char *out);
 
 /* 释放编码器内部 Huffman 资源（对标 SZ_FreeHuffman） */
 static inline void sz3_huffman_free_internal_f32(SZ3HuffmanEncoderF32 *enc);
@@ -644,6 +644,200 @@ static inline size_t sz3_huffman_encoder_f32_encode(const SZ3HuffmanEncoderF32 *
     sz3_dep_write_size_t(out_size, bytes);
     *bytes += out_size;
     return out_size;
+}
+
+static inline void sz3_huffman_encoder_f32_save(const SZ3HuffmanEncoderF32 *enc, unsigned char **c) {
+    (void)enc;
+    (void)c;
+    /* 占位实现：暂不序列化 Huffman 树，留待后续对接完整 save 流程。 */
+}
+
+static inline void sz3_huffman_encoder_f32_preprocess_decode(SZ3HuffmanEncoderF32 *enc) {
+    if (enc == NULL) return;
+    /* 占位实现：仅重置解码游标相关状态，不做树反序列化。 */
+    enc->tree_root = (enc->tree != NULL) ? enc->tree->qq[1] : NULL;
+}
+
+static inline int sz3_huffman_encoder_f32_decode(SZ3HuffmanEncoderF32 *enc,
+                                                 const unsigned char **bytes,
+                                                 size_t target_length,
+                                                 float *out_values) {
+    (void)enc;
+    (void)bytes;
+    (void)target_length;
+    (void)out_values;
+    /* 占位实现：当前未执行真实位流解码，返回失败码，避免误判为成功。 */
+    return -1;
+}
+
+static inline void sz3_huffman_encoder_f32_postprocess_decode(SZ3HuffmanEncoderF32 *enc) {
+    (void)enc;
+    /* 占位实现：当前无额外解码后资源需要回收。 */
+}
+
+static inline int sz3_huffman_encoder_f32_load(SZ3HuffmanEncoderF32 *enc,
+                                                const unsigned char **c,
+                                                size_t *remaining_length) {
+    (void)c;
+    (void)remaining_length;
+    if (enc == NULL) return -1;
+    /* 占位实现：未加载树结构，明确标记 loaded=false。 */
+    enc->loaded = false;
+    return -1;
+}
+
+static inline bool sz3_huffman_encoder_f32_is_loaded(const SZ3HuffmanEncoderF32 *enc) {
+    return (enc != NULL) ? enc->loaded : false;
+}
+
+static inline SZ3HuffmanNodeF32 *sz3_huffman_reconstruct_tree_from_bytes_any_states_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                                          const unsigned char *bytes,
+                                                                                          unsigned int node_count) {
+    (void)enc;
+    (void)bytes;
+    (void)node_count;
+    /* 占位实现：树重建逻辑尚未接入。 */
+    return NULL;
+}
+
+static inline SZ3HuffmanNodeF32 *sz3_huffman_new_node2_f32(SZ3HuffmanEncoderF32 *enc,
+                                                            float symbol,
+                                                            unsigned char is_leaf) {
+    (void)is_leaf;
+    /* 占位实现：复用现有建节点逻辑，仅构造叶节点。 */
+    return sz3_huffman_new_node_f32(enc, 1U, symbol, NULL, NULL);
+}
+
+static inline void sz3_huffman_pad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                uint8_t *L,
+                                                uint8_t *R,
+                                                float *C,
+                                                unsigned char *t,
+                                                unsigned int i,
+                                                SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不导出树结构数组。 */
+}
+
+static inline void sz3_huffman_pad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                 uint16_t *L,
+                                                 uint16_t *R,
+                                                 float *C,
+                                                 unsigned char *t,
+                                                 unsigned int i,
+                                                 SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不导出树结构数组。 */
+}
+
+static inline void sz3_huffman_pad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                 uint32_t *L,
+                                                 uint32_t *R,
+                                                 float *C,
+                                                 unsigned char *t,
+                                                 unsigned int i,
+                                                 SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不导出树结构数组。 */
+}
+
+static inline void sz3_huffman_unpad_tree_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                  const uint8_t *L,
+                                                  const uint8_t *R,
+                                                  const float *C,
+                                                  const unsigned char *t,
+                                                  unsigned int i,
+                                                  SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不从数组恢复树结构。 */
+}
+
+static inline void sz3_huffman_unpad_tree_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                   const uint16_t *L,
+                                                   const uint16_t *R,
+                                                   const float *C,
+                                                   const unsigned char *t,
+                                                   unsigned int i,
+                                                   SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不从数组恢复树结构。 */
+}
+
+static inline void sz3_huffman_unpad_tree_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                   const uint32_t *L,
+                                                   const uint32_t *R,
+                                                   const float *C,
+                                                   const unsigned char *t,
+                                                   unsigned int i,
+                                                   SZ3HuffmanNodeF32 *root) {
+    (void)enc;
+    (void)L;
+    (void)R;
+    (void)C;
+    (void)t;
+    (void)i;
+    (void)root;
+    /* 占位实现：暂不从数组恢复树结构。 */
+}
+
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u8_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                     unsigned int node_count,
+                                                                     unsigned char *out) {
+    (void)enc;
+    (void)node_count;
+    (void)out;
+    /* 占位实现：暂不执行树到字节流转换。 */
+    return 0U;
+}
+
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u16_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                      unsigned int node_count,
+                                                                      unsigned char *out) {
+    (void)enc;
+    (void)node_count;
+    (void)out;
+    /* 占位实现：暂不执行树到字节流转换。 */
+    return 0U;
+}
+
+static inline unsigned int sz3_huffman_convert_tree_to_bytes_u32_f32(SZ3HuffmanEncoderF32 *enc,
+                                                                      unsigned int node_count,
+                                                                      unsigned char *out) {
+    (void)enc;
+    (void)node_count;
+    (void)out;
+    /* 占位实现：暂不执行树到字节流转换。 */
+    return 0U;
 }
 
 static inline void sz3_huffman_free_internal_f32(SZ3HuffmanEncoderF32 *enc) {
