@@ -134,10 +134,10 @@ static inline void sz3_interp_decomp_build_anchor_grid(SZ3InterpolationDecomposi
 static inline void sz3_interp_decomp_recover_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data);
 
 static inline float sz3_interp_linear(float a, float b) { return (a + b) * 0.5f; }
-static inline float sz3_interp_linear1(float a, float b) { return 2.0f * b - a; }
+static inline float sz3_interp_linear1(float a, float b) { return -0.5f * a + 1.5f * b; }
 static inline float sz3_interp_quad_1(float a, float b, float c) { return (3.0f * a + 6.0f * b - c) * 0.125f; }
 static inline float sz3_interp_quad_2(float a, float b, float c) { return (-a + 6.0f * b + 3.0f * c) * 0.125f; }
-static inline float sz3_interp_quad_3(float a, float b, float c) { return 3.0f * c - 3.0f * b + a; }
+static inline float sz3_interp_quad_3(float a, float b, float c) { return (3.0f * a - 10.0f * b + 15.0f * c) / 8.0f; }
 static inline float sz3_interp_cubic(float a, float b, float c, float d) {
     return (-a + 9.0f * b + 9.0f * c - d) * 0.0625f;
 }
