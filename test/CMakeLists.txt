@@ -1,0 +1,3 @@
+add_executable(linear_huffman_c_cpp_test quantizer_huffman_c_cpp_test.cpp)
+target_link_libraries(linear_huffman_c_cpp_test PRIVATE SZ3)
+add_test(NAME linear_huffman_c_cpp_test COMMAND linear_huffman_c_cpp_test)
