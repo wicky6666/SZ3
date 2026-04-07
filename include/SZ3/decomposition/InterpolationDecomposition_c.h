@@ -504,7 +504,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
 
     sz3_interp_decomp_init_runtime(ctx);
-    eb = (double)sz3_line_quantizer_get_eb(&ctx->quantizer);
+    eb = sz3_line_quantizer_get_eb(&ctx->quantizer);
     free(ctx->quant_inds);
     ctx->quant_inds = NULL;
     ctx->quant_inds = (int *)malloc(ctx->num_elements * sizeof(int));
@@ -535,7 +535,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
             }
             cur_eb = eb / cur_ratio;
         }
-        sz3_line_quantizer_set_eb(&ctx->quantizer, (float)cur_eb);
+        sz3_line_quantizer_set_eb(&ctx->quantizer, cur_eb);
 
         if (ctx->n != 1) {
             /* 暂未处理多维块遍历压缩。 */
@@ -552,7 +552,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
                                             &qctx);
         }
     }
-    sz3_line_quantizer_set_eb(&ctx->quantizer, (float)eb);
+    sz3_line_quantizer_set_eb(&ctx->quantizer, eb);
     *out_count = ctx->num_elements;
     return ctx->quant_inds;
 }
