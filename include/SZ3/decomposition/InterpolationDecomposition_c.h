@@ -184,6 +184,13 @@ typedef struct SZ3InterpQuantizeCtxC {
 
 static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, float pred, void *user_data);
 
+typedef struct SZ3InterpRecoverCtxC {
+    SZ3InterpolationDecompositionC *ctx;
+    size_t quant_count;
+} SZ3InterpRecoverCtxC;
+
+static inline void sz3_interp_recover_cb(size_t idx, float *d, float pred, void *user_data);
+
 /*
  * ===================== 内联实现 =====================
  */
@@ -314,6 +321,21 @@ static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, fl
     }
     qctx->ctx->quant_inds[qctx->ctx->quant_index++] =
         sz3_line_quantizer_quantize_and_overwrite(&qctx->ctx->quantizer, d, pred);
+    (void)idx;
+}
+
+static inline void sz3_interp_recover_cb(size_t idx, float *d, float pred, void *user_data) {
+    SZ3InterpRecoverCtxC *rctx = (SZ3InterpRecoverCtxC *)user_data;
+    if (rctx == NULL || rctx->ctx == NULL || d == NULL) {
+        return;
+    }
+    /* 关键步骤：按与压缩一致的顺序读取量化索引并执行反量化恢复。 */
+    if (rctx->ctx->quant_index < rctx->quant_count) {
+        *d = sz3_line_quantizer_recover(&rctx->ctx->quantizer, pred, rctx->ctx->quant_inds[rctx->ctx->quant_index++]);
+    } else {
+        /* 未完整实现：当 quant_count 不足时，当前仅保持预测值，避免越界读。 */
+        *d = pred;
+    }
     (void)idx;
 }
 
@@ -562,14 +584,75 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
                                                   int *quant_inds,
                                                   float *dec_data,
                                                   size_t quant_count) {
-    (void)conf;
-    (void)quant_inds;
-    (void)quant_count;
+    double eb;
+    int level;
+    size_t dims_begin[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    size_t dims_end[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    SZ3InterpRecoverCtxC rctx;
     if (ctx == NULL) {
         return NULL;
     }
-    /* 未完整实现：当前仅完成运行时初始化，尚未执行锚点恢复、层级插值与反量化重建。 */
+    if (conf == NULL || quant_inds == NULL || dec_data == NULL) {
+        return NULL;
+    }
+
+    /* 与压缩路径同步更新运行参数，确保同一配置下可正确反量化。 */
+    ctx->interp_id = conf->interp_algo;
+    ctx->direction_sequence_id = conf->interp_direction;
+    ctx->anchor_stride = conf->interp_anchor_stride;
+    ctx->eb_alpha = conf->interp_alpha;
+    ctx->eb_beta = conf->interp_beta;
+    ctx->n = conf->num_dims;
+    if (ctx->n > SZ3_INTERP_MAX_DIMS) {
+        ctx->n = SZ3_INTERP_MAX_DIMS;
+    }
+    memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
+
     sz3_interp_decomp_init_runtime(ctx);
+    ctx->quant_inds = quant_inds;
+    eb = sz3_line_quantizer_get_eb(&ctx->quantizer);
+
+    if (ctx->anchor_stride == 0) {
+        if (quant_count == 0) return NULL;
+        /* 无锚点模式下，首元素直接由量化索引恢复。 */
+        *dec_data = sz3_line_quantizer_recover(&ctx->quantizer, 0.0f, ctx->quant_inds[ctx->quant_index++]);
+    } else {
+        sz3_interp_decomp_recover_anchor_grid(ctx, dec_data);
+        ctx->interp_level--;
+        /* 未完整实现：锚点恢复函数当前仍为占位，复杂锚点场景结果可能不完整。 */
+    }
+
+    rctx.ctx = ctx;
+    rctx.quant_count = quant_count;
+    for (level = ctx->interp_level; level > 0; level--) {
+        size_t stride = ((size_t)1) << ((size_t)level - 1u);
+        size_t interp_block_size = (size_t)ctx->blocksize * stride;
+        size_t block_begin;
+        double cur_eb = eb;
+        if (ctx->eb_alpha < 0) {
+            cur_eb = (level >= 3) ? (eb * ctx->eb_ratio) : eb;
+        } else if (ctx->eb_alpha >= 1) {
+            double cur_ratio = pow(ctx->eb_alpha, (double)level - 1.0);
+            if (cur_ratio > ctx->eb_beta) cur_ratio = ctx->eb_beta;
+            cur_eb = eb / cur_ratio;
+        }
+        sz3_line_quantizer_set_eb(&ctx->quantizer, cur_eb);
+
+        if (ctx->n != 1) {
+            /* 未完整实现：当前仅完整支持 1D 解压流程。 */
+            continue;
+        }
+        for (block_begin = 0; block_begin < ctx->original_dimensions[0]; block_begin += interp_block_size) {
+            dims_begin[0] = block_begin;
+            dims_end[0] = block_begin + interp_block_size;
+            if (dims_end[0] > ctx->original_dimensions[0] - 1) {
+                dims_end[0] = ctx->original_dimensions[0] - 1;
+            }
+            sz3_interp_decomp_interpolation(ctx, dec_data, dims_begin, dims_end, ctx->interp_id, sz3_interp_recover_cb,
+                                            ctx->direction_sequence_id, stride, &rctx);
+        }
+    }
+    sz3_line_quantizer_set_eb(&ctx->quantizer, eb);
     return dec_data;
 }
 
