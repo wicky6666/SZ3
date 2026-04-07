@@ -1,3 +1,7 @@
 add_executable(linear_huffman_c_cpp_test quantizer_huffman_c_cpp_test.cpp)
 target_link_libraries(linear_huffman_c_cpp_test PRIVATE SZ3)
 add_test(NAME linear_huffman_c_cpp_test COMMAND linear_huffman_c_cpp_test)
+
+add_executable(interpolation_decomposition_c_cpp_test interpolation_decomposition_c_cpp_test.cpp)
+target_link_libraries(interpolation_decomposition_c_cpp_test PRIVATE SZ3)
+add_test(NAME interpolation_decomposition_c_cpp_test COMMAND interpolation_decomposition_c_cpp_test)
