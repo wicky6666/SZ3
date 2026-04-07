@@ -53,8 +53,8 @@ typedef struct SZ3RangeI32 {
  */
 typedef struct SZ3LineQuantizerC {
     /* 量化误差控制参数 */
-    float error_bound;
-    float error_bound_reciprocal;
+    double error_bound;
+    double error_bound_reciprocal;
 
     /* 量化半径（对应 C++ radius） */
     int radius;
@@ -82,7 +82,7 @@ typedef struct SZ3LineQuantizerC {
 static inline void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q);
 
 /* 参数初始化：对标 C++ 构造函数 LinearQuantizer(float eb, int r, bool strict) */
-static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb);
+static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, double eb, int r, bool strict_eb);
 
 /* 释放内部资源（主要是 unpred 缓冲区） */
 static inline void sz3_line_quantizer_destroy(SZ3LineQuantizerC *q);
@@ -95,10 +95,10 @@ static inline void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q);
  */
 
 /* 获取误差界（对标 get_eb） */
-static inline float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
+static inline double sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q);
 
 /* 设置误差界并刷新倒数（对标 set_eb） */
-static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb);
+static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, double eb);
 
 /* 获取输出索引范围（对标 get_out_range，范围为 [0, radius * 2]） */
 static inline SZ3RangeI32 sz3_line_quantizer_get_out_range(const SZ3LineQuantizerC *q);
@@ -234,7 +234,7 @@ static inline void sz3_line_quantizer_reset_runtime(SZ3LineQuantizerC *q) {
     q->index = 0;
 }
 
-static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, float eb, int r, bool strict_eb) {
+static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, double eb, int r, bool strict_eb) {
     if (q == NULL) {
         return;
     }
@@ -258,11 +258,11 @@ static inline void sz3_line_quantizer_init_default(SZ3LineQuantizerC *q) {
     sz3_line_quantizer_init(q, 1.0f, 32768, true);
 }
 
-static inline float sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q) {
-    return (q == NULL) ? 0.0f : q->error_bound;
+static inline double sz3_line_quantizer_get_eb(const SZ3LineQuantizerC *q) {
+    return (q == NULL) ? 0.0 : q->error_bound;
 }
 
-static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, float eb) {
+static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, double eb) {
     if (q == NULL) {
         return;
     }
@@ -309,10 +309,10 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
         }
 
         /* 4) 重建量化后的数据，校验是否满足严格/宽松误差界 */
-        decompressed_data = pred + (float)quant_index * q->error_bound;
+        decompressed_data = (float)((double)pred + (double)quant_index * q->error_bound);
         diff = fabsf(decompressed_data - *data);
 
-        if (diff <= q->error_bound || (!q->strict_eb && diff <= q->error_bound * 1.1f)) {
+        if (diff <= (float)q->error_bound || (!q->strict_eb && diff <= (float)(q->error_bound * 1.1))) {
             /* 5) 可量化：回写重建值并返回对应量化索引 */
             *data = decompressed_data;
             return quant_index_shifted;
@@ -360,8 +360,8 @@ static inline void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned 
 
     *(*c)++ = q->uid;
 
-    memcpy(*c, &q->error_bound, sizeof(float));
-    *c += sizeof(float);
+    memcpy(*c, &q->error_bound, sizeof(double));
+    *c += sizeof(double);
 
     memcpy(*c, &q->radius, sizeof(int));
     *c += sizeof(int);
@@ -379,7 +379,7 @@ static inline void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned 
 
 static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned char **c, size_t *remaining_length) {
     uint8_t uid_read;
-    float error_bound_read;
+    double error_bound_read;
     int radius_read;
     size_t unpred_size_read;
     size_t data_bytes;
@@ -399,13 +399,13 @@ static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned 
         return;
     }
 
-    if (*remaining_length < sizeof(float) + sizeof(int) + sizeof(size_t)) {
+    if (*remaining_length < sizeof(double) + sizeof(int) + sizeof(size_t)) {
         return;
     }
 
-    memcpy(&error_bound_read, *c, sizeof(float));
-    *c += sizeof(float);
-    *remaining_length -= sizeof(float);
+    memcpy(&error_bound_read, *c, sizeof(double));
+    *c += sizeof(double);
+    *remaining_length -= sizeof(double);
 
     memcpy(&radius_read, *c, sizeof(int));
     *c += sizeof(int);
