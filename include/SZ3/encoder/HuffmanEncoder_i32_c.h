@@ -55,6 +55,7 @@ static inline void sz3_dep_i32_int32_to_bytes_big_endian(unsigned char *dst, int
 
 static inline int32_t sz3_dep_i32_bytes_to_int32_big_endian(const unsigned char *src) {
     if (src == NULL) return 0;
+    /* 按网络字节序（大端）逐字节拼回 int32，确保跨平台一致。 */
     int32_t res = 0;
     res |= (int32_t)src[0];
     res <<= 8;
@@ -124,7 +125,7 @@ typedef struct SZ3HuffmanTreeI32 {
 
     SZ3HuffmanNodeI32 *pool;
     SZ3HuffmanNodeI32 **qqq;
-    SZ3HuffmanNodeI32 **qq; /* 小根堆根节点位于 qq[1] */
+    SZ3HuffmanNodeI32 **qq; /* 1 基下标小根堆，根节点位于 qq[1] */
 
     int n_nodes;   /* 编码阶段已使用节点数 */
     int qend;      /* 小根堆尾位置（开区间） */
@@ -191,6 +192,7 @@ static inline SZ3HuffmanTreeI32 *sz3_huffman_tree_i32_create(int state_num) {
         return NULL;
     }
 
+    /* 通过“指针左移 1”把 0 基数组模拟成 1 基堆，方便对齐 C++ 实现。 */
     tree->qq = tree->qqq - 1;
     tree->n_nodes = 0;
     tree->n_inode = 0;
@@ -210,6 +212,7 @@ static inline void sz3_huffman_tree_i32_free(SZ3HuffmanTreeI32 *tree) {
     tree->qqq = NULL;
     tree->qq = NULL;
 
+    /* code[i] 是二级动态分配，释放时需逐项回收后再 free(code)。 */
     if (tree->code != NULL) {
         for (unsigned int i = 0; i < tree->state_num; i++) {
             free(tree->code[i]);
@@ -375,6 +378,7 @@ static inline SZ3HuffmanNodeI32 *sz3_huffman_new_node_i32(SZ3HuffmanEncoderI32 *
     if (enc == NULL || enc->tree == NULL || enc->tree->pool == NULL) return NULL;
     SZ3HuffmanTreeI32 *tree = enc->tree;
     SZ3HuffmanNodeI32 *n = tree->pool + tree->n_nodes++;
+    /* freq!=0 视为叶子；freq==0 视为内部节点并由左右子频次求和。 */
     if (freq) {
         n->symbol = symbol;
         n->freq = freq;
@@ -576,6 +580,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
     if (enc->tree == NULL || enc->tree->cout == NULL || enc->tree->code == NULL) return 0;
 
     size_t out_size = 0;
+    /* 预留前 sizeof(size_t) 字节写编码长度，真实位流从其后开始。 */
     unsigned char *p = *bytes + sizeof(size_t);
     int lack_bits = 0;
 
@@ -589,6 +594,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
         unsigned char byte_size_p;
 
         if (lack_bits == 0) {
+            /* 目标字节当前为空：直接按码字字节对齐写入。 */
             byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U) : (unsigned char)(bit_size / 8U + 1U);
             byte_size_p = (unsigned char)(bit_size / 8U);
 
@@ -602,8 +608,10 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
                 p += (byte_size_p - 8U);
             }
             out_size += byte_size;
+            /* 记录当前字节末尾还缺多少 bit（用于下一个码字拼接）。 */
             lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
         } else {
+            /* 目标字节已有残留位：先补齐当前字节，再继续写后续位。 */
             *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - lack_bits)));
             if (lack_bits < bit_size) {
                 p++;
@@ -611,6 +619,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
                 sz3_dep_i32_int64_to_bytes_big_endian(p, new_code);
 
                 if (bit_size <= 64U) {
+                    /* 码长落在 64 bit 内，直接处理高 64 位缓存。 */
                     bit_size = (unsigned char)(bit_size - (unsigned char)lack_bits);
                     byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U)
                                                       : (unsigned char)(bit_size / 8U + 1U);
@@ -619,6 +628,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
                     out_size += byte_size;
                     lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
                 } else {
+                    /* 码长超过 64 bit，需继续消费 code[state][1]。 */
                     byte_size_p = 7U;
                     p += byte_size_p;
                     out_size += byte_size;
@@ -642,6 +652,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
                     }
                 }
             } else {
+                /* 残留位足够容纳本码字，不推进指针只更新 lack_bits。 */
                 lack_bits -= bit_size;
                 if (lack_bits == 0) p++;
             }
@@ -752,11 +763,14 @@ static inline int sz3_huffman_encoder_i32_load(SZ3HuffmanEncoderI32 *enc,
     *remaining_length -= sizeof(int32_t);
 
     if (enc->node_count <= 256U) {
+        /* u8 布局：1 字节类型 + 左右孩子索引 + 符号数组。 */
         encode_start_index = 1U + 3U * enc->node_count * sizeof(uint8_t) + enc->node_count * sizeof(int);
     } else if (enc->node_count <= 65536U) {
+        /* u16 布局：索引宽度升级为 2 字节。 */
         encode_start_index = 1U + 2U * enc->node_count * sizeof(uint16_t) + enc->node_count * sizeof(unsigned char) +
                              enc->node_count * sizeof(int);
     } else {
+        /* u32 布局：超大树时使用 4 字节索引。 */
         encode_start_index = 1U + 2U * enc->node_count * sizeof(uint32_t) + enc->node_count * sizeof(unsigned char) +
                              enc->node_count * sizeof(int);
     }
