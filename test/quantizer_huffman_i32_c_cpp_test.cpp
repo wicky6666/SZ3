@@ -142,9 +142,22 @@ int main() {
             return fail("C++ Huffman decode mismatch at i=" + std::to_string(i));
         }
     }
+    cpp_huffman.postprocess_decode();
+
+    sz3_huffman_encoder_i32_preprocess_decode(&c_huffman);
+    const unsigned char *c_read_ptr = c_encoded.data();
+    std::vector<int> c_decoded(c_quant_index.size(), 0);
+    if (sz3_huffman_encoder_i32_decode(&c_huffman, &c_read_ptr, c_quant_index.size(), c_decoded.data()) != 0) {
+        return fail("C Huffman(i32) decode failed");
+    }
+    for (size_t i = 0; i < c_decoded.size(); i++) {
+        if (c_decoded[i] != c_quant_index[i]) {
+            return fail("C Huffman(i32) decode mismatch at i=" + std::to_string(i));
+        }
+    }
+    sz3_huffman_encoder_i32_postprocess_decode(&c_huffman);
 
     cpp_huffman.postprocess_encode();
-    cpp_huffman.postprocess_decode();
     sz3_huffman_encoder_i32_postprocess_encode(&c_huffman);
     sz3_huffman_encoder_i32_destroy(&c_huffman);
     sz3_line_quantizer_destroy(&c_quantizer);

@@ -102,14 +102,44 @@ int main() {
         }
     }
 
-    sz3_interp_decomp_destroy(&c_decomp);
-
     if (mismatch_count > 0) {
         std::cerr << "[INFO] first mismatch at i=" << first_mismatch_idx << ", cpp=" << cpp_quant_inds[first_mismatch_idx]
                   << ", c=" << c_quant_inds[first_mismatch_idx] << std::endl;
         std::cerr << "[INFO] total mismatches=" << mismatch_count << std::endl;
+        sz3_interp_decomp_destroy(&c_decomp);
         return fail("InterpolationDecomposition compress outputs differ between C and C++ implementations");
     }
+
+    std::vector<float> cpp_dequant(kLength, 0.0f);
+    std::vector<float> c_dequant(kLength, 0.0f);
+
+    cpp_decomp.decompress(cpp_conf, cpp_quant_inds, cpp_dequant.data());
+    if (sz3_interp_decomp_decompress(&c_decomp, &c_conf, c_quant_inds, c_dequant.data(), c_quant_count) == nullptr) {
+        sz3_interp_decomp_destroy(&c_decomp);
+        return fail("sz3_interp_decomp_decompress returned nullptr");
+    }
+
+    size_t dequant_mismatch_count = 0;
+    size_t first_dequant_mismatch_idx = 0;
+    for (size_t i = 0; i < kLength; i++) {
+        if (cpp_dequant[i] != c_dequant[i]) {
+            if (dequant_mismatch_count == 0) {
+                first_dequant_mismatch_idx = i;
+            }
+            dequant_mismatch_count++;
+        }
+    }
+
+    if (dequant_mismatch_count > 0) {
+        std::cerr << "[INFO] first dequant mismatch at i=" << first_dequant_mismatch_idx
+                  << ", cpp=" << cpp_dequant[first_dequant_mismatch_idx]
+                  << ", c=" << c_dequant[first_dequant_mismatch_idx] << std::endl;
+        std::cerr << "[INFO] total dequant mismatches=" << dequant_mismatch_count << std::endl;
+        sz3_interp_decomp_destroy(&c_decomp);
+        return fail("InterpolationDecomposition decompress outputs differ between C and C++ implementations");
+    }
+
+    sz3_interp_decomp_destroy(&c_decomp);
 
     std::cout << "[PASS] InterpolationDecomposition compress C/C++ consistency checks passed." << std::endl;
     return 0;
