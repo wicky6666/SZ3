@@ -176,6 +176,7 @@ static inline int sz3_line_quantizer_reserve_unpred(SZ3LineQuantizerC *q, size_t
         return 0;
     }
 
+    /* 初始容量 64，后续按 2 倍扩容，减少频繁 realloc。 */
     new_capacity = (q->unpred_capacity == 0) ? 64u : q->unpred_capacity;
     while (new_capacity < min_capacity) {
         size_t doubled = new_capacity * 2u;
@@ -203,6 +204,7 @@ static inline int sz3_line_quantizer_push_unpred(SZ3LineQuantizerC *q, float val
     if (sz3_line_quantizer_reserve_unpred(q, q->unpred_size + 1) != 0) {
         return -1;
     }
+    /* 先写后增，保证 unpred_size 始终表示有效元素个数。 */
     q->unpred[q->unpred_size++] = value;
     return 0;
 }
@@ -243,6 +245,7 @@ static inline void sz3_line_quantizer_init(SZ3LineQuantizerC *q, double eb, int 
     }
 
     q->error_bound = eb;
+    /* 缓存倒数，后续量化阶段用乘法替代除法。 */
     q->error_bound_reciprocal = 1.0f / eb;
     q->radius = r;
     q->strict_eb = strict_eb;
@@ -267,6 +270,7 @@ static inline void sz3_line_quantizer_set_eb(SZ3LineQuantizerC *q, double eb) {
         return;
     }
     if (eb == 0.0f) {
+        /* 防止除零：将非法 eb 回退到默认值 1。 */
         eb = 1.0f;
     }
     q->error_bound = eb;
@@ -288,6 +292,7 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
     float decompressed_data;
 
     if (q == NULL || data == NULL) {
+        /* 与 C++ 实现保持兼容：异常输入返回 0（按不可预测处理）。 */
         return 0;
     }
 
@@ -302,9 +307,11 @@ static inline int sz3_line_quantizer_quantize_and_overwrite(SZ3LineQuantizerC *q
 
         /* 3) 根据误差正负决定编码方向，同时生成带 radius 偏移的编码值 */
         if (diff < 0) {
+            /* 负误差编码到 radius 左侧区间。 */
             quant_index = -quant_index;
             quant_index_shifted = q->radius - half_index;
         } else {
+            /* 正误差编码到 radius 右侧区间。 */
             quant_index_shifted = q->radius + half_index;
         }
 
@@ -328,6 +335,7 @@ static inline float sz3_line_quantizer_recover_pred(const SZ3LineQuantizerC *q, 
     if (q == NULL) {
         return pred;
     }
+    /* 与 quantize 时的“偶数步长”编码对应，这里乘以 2*eb 还原。 */
     return pred + 2.0f * (float)(quant_index - q->radius) * q->error_bound;
 }
 
@@ -340,8 +348,10 @@ static inline float sz3_line_quantizer_recover_unpred(SZ3LineQuantizerC *q) {
 
 static inline float sz3_line_quantizer_recover(SZ3LineQuantizerC *q, float pred, int quant_index) {
     if (quant_index != 0) {
+        /* 非 0 索引表示“可预测”样本，走预测恢复路径。 */
         return sz3_line_quantizer_recover_pred(q, pred, quant_index);
     }
+    /* 0 索引表示“不可预测”样本，按写入顺序读取 unpred。 */
     return sz3_line_quantizer_recover_unpred(q);
 }
 
@@ -358,6 +368,7 @@ static inline void sz3_line_quantizer_save(const SZ3LineQuantizerC *q, unsigned 
         return;
     }
 
+    /* 先写 uid，解码侧可快速校验量化器类型是否匹配。 */
     *(*c)++ = q->uid;
 
     memcpy(*c, &q->error_bound, sizeof(double));
@@ -396,6 +407,7 @@ static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned 
     (*c)++;
     *remaining_length -= sizeof(uint8_t);
     if (uid_read != q->uid) {
+        /* 类型不匹配直接返回，避免把错误字节流解释为当前结构。 */
         return;
     }
 
@@ -424,6 +436,7 @@ static inline void sz3_line_quantizer_load(SZ3LineQuantizerC *q, const unsigned 
     }
 
     if (unpred_size_read > 0) {
+        /* 先分配新缓冲，成功后再替换旧缓冲，避免中途失败破坏旧状态。 */
         new_unpred = (float *)malloc(data_bytes);
         if (new_unpred == NULL) {
             return;

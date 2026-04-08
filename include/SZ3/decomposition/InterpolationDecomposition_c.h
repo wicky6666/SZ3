@@ -133,11 +133,17 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
 static inline void sz3_interp_decomp_build_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data);
 static inline void sz3_interp_decomp_recover_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data);
 
+/* 线性插值：使用左右邻点的平均值。 */
 static inline float sz3_interp_linear(float a, float b) { return (a + b) * 0.5f; }
+/* 线性外推：常用于边界位置，按最近两个点估计下一个点。 */
 static inline float sz3_interp_linear1(float a, float b) { return -0.5f * a + 1.5f * b; }
+/* 二次插值模板 1：用于靠左区域的三点插值。 */
 static inline float sz3_interp_quad_1(float a, float b, float c) { return (3.0f * a + 6.0f * b - c) * 0.125f; }
+/* 二次插值模板 2：用于中间区域的三点插值。 */
 static inline float sz3_interp_quad_2(float a, float b, float c) { return (-a + 6.0f * b + 3.0f * c) * 0.125f; }
+/* 二次插值模板 3：用于靠右区域的三点插值。 */
 static inline float sz3_interp_quad_3(float a, float b, float c) { return (3.0f * a - 10.0f * b + 15.0f * c) / 8.0f; }
+/* 三次插值：四点模板，中心点精度通常高于线性/二次。 */
 static inline float sz3_interp_cubic(float a, float b, float c, float d) {
     return (-a + 9.0f * b + 9.0f * c - d) * 0.0625f;
 }
@@ -179,12 +185,14 @@ static inline double sz3_interp_decomp_interpolation(SZ3InterpolationDecompositi
                                                      void *user_data);
 
 typedef struct SZ3InterpQuantizeCtxC {
+    /* 回调里通过 user_data 回传主上下文，避免全局变量。 */
     SZ3InterpolationDecompositionC *ctx;
 } SZ3InterpQuantizeCtxC;
 
 static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, float pred, void *user_data);
 
 typedef struct SZ3InterpRecoverCtxC {
+    /* quant_count 用于防越界：恢复时不能读超过量化索引总数。 */
     SZ3InterpolationDecompositionC *ctx;
     size_t quant_count;
 } SZ3InterpRecoverCtxC;
@@ -203,6 +211,7 @@ static inline void sz3_interp_decomp_init(SZ3InterpolationDecompositionC *ctx,
         return;
     }
     memset(ctx, 0, sizeof(*ctx));
+    /* n 仅允许 1~4，超出上限时在 C 层强制截断。 */
     ctx->n = conf->num_dims;
     if (ctx->n > SZ3_INTERP_MAX_DIMS) {
         ctx->n = SZ3_INTERP_MAX_DIMS;
@@ -213,6 +222,7 @@ static inline void sz3_interp_decomp_init(SZ3InterpolationDecompositionC *ctx,
     ctx->eb_alpha = conf->interp_alpha;
     ctx->eb_beta = conf->interp_beta;
     ctx->eb_ratio = 0.5;
+    /* blocksize 需保持偶数，便于每层按 2 分裂插值。 */
     ctx->blocksize = 32u;
     ctx->interp_level = -1;
     for (i = 0; i < ctx->n && i < SZ3_INTERP_MAX_DIMS; i++) {
@@ -245,6 +255,7 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
         return;
     }
     ctx->quant_index = 0;
+    /* num_elements 用于一次性分配 quant_inds，避免循环中多次扩容。 */
     ctx->num_elements = 1;
     ctx->interp_level = -1;
 
@@ -253,6 +264,7 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
 
     for (i = 0; i < ctx->n; i++) {
         size_t d = ctx->original_dimensions[i];
+        /* 每一维的 level=ceil(log2(dim))，最终取最大层数作为全局插值层级。 */
         int level = (d <= 1) ? 0 : (int)ceil(log2((double)d));
         if (level > ctx->interp_level) {
             ctx->interp_level = level;
@@ -273,6 +285,7 @@ static inline void sz3_interp_decomp_init_runtime(SZ3InterpolationDecompositionC
     }
 
     ctx->original_dim_offsets[ctx->n - 1] = 1;
+    /* 生成行主序 offset：offset[i]=prod_{j>i}(dim[j])。 */
     for (i = (uint32_t)(ctx->n - 1); i > 0; i--) {
         ctx->original_dim_offsets[i - 1] = ctx->original_dim_offsets[i] * ctx->original_dimensions[i];
     }
@@ -319,6 +332,7 @@ static inline void sz3_interp_quantize_and_overwrite_cb(size_t idx, float *d, fl
     if (qctx == NULL || qctx->ctx == NULL || d == NULL) {
         return;
     }
+    /* quant_index 在此单调递增，写入顺序即后续解压读取顺序。 */
     qctx->ctx->quant_inds[qctx->ctx->quant_index++] =
         sz3_line_quantizer_quantize_and_overwrite(&qctx->ctx->quantizer, d, pred);
     (void)idx;
@@ -369,6 +383,7 @@ static inline double sz3_interp_decomp_interpolation_1d(SZ3InterpolationDecompos
     }
 
     n = (end - begin) / stride + 1;
+    /* n 表示当前 1D 片段采样点数，不足 2 个点则无法插值。 */
     if (n <= 1) {
         return 0.0;
     }
@@ -377,11 +392,13 @@ static inline double sz3_interp_decomp_interpolation_1d(SZ3InterpolationDecompos
     stride5x = 5 * stride;
 
     if (interp_id == 0 || n < 5) {
+        /* 线性模式或短序列：按“奇数位”补点。 */
         for (i = 1; i + 1 < n; i += 2) {
             float *d = data + begin + i * stride;
             cb((size_t)(d - data), d, sz3_interp_linear(*(d - stride), *(d + stride)), user_data);
         }
         if ((n % 2) == 0) {
+            /* 偶数长度时尾点没有右邻居，改用边界外推策略。 */
             float *d = data + begin + (n - 1) * stride;
             if (n < 4) {
                 cb((size_t)(d - data), d, *(d - stride), user_data);
@@ -390,6 +407,7 @@ static inline double sz3_interp_decomp_interpolation_1d(SZ3InterpolationDecompos
             }
         }
     } else {
+        /* 三次模式：中间点走 cubic，首尾邻域走二次模板。 */
         for (i = 3; i + 3 < n; i += 2) {
             float *d = data + begin + i * stride;
             cb((size_t)(d - data), d,
@@ -527,6 +545,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
 
     sz3_interp_decomp_init_runtime(ctx);
     eb = sz3_line_quantizer_get_eb(&ctx->quantizer);
+    /* 每次压缩都重建 quant_inds，避免复用旧缓冲造成脏数据。 */
     free(ctx->quant_inds);
     ctx->quant_inds = NULL;
     ctx->quant_inds = (int *)malloc(ctx->num_elements * sizeof(int));
@@ -536,6 +555,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     }
 
     if (ctx->anchor_stride == 0) {
+        /* 无锚点模式：首样本以 pred=0 单独编码，作为后续插值基准。 */
         ctx->quant_inds[ctx->quant_index++] = sz3_line_quantizer_quantize_and_overwrite(&ctx->quantizer, data, 0.0f);
     } else {
         sz3_interp_decomp_build_anchor_grid(ctx, data);
@@ -545,6 +565,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     qctx.ctx = ctx;
     for (level = ctx->interp_level; level > 0; level--) {
         size_t stride = ((size_t)1) << ((size_t)level - 1u);
+        /* 当前层步长 stride=2^(level-1)，block 大小随层级同步放大。 */
         size_t interp_block_size = (size_t)ctx->blocksize * stride;
         size_t block_begin;
         cur_eb = eb;
@@ -564,6 +585,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
             continue;
         }
         for (block_begin = 0; block_begin < ctx->original_dimensions[0]; block_begin += interp_block_size) {
+            /* 每个 block 以 [begin,end] 闭区间送入 interpolation。 */
             dims_begin[0] = block_begin;
             dims_end[0] = block_begin + interp_block_size;
             if (dims_end[0] > ctx->original_dimensions[0] - 1) {
@@ -609,6 +631,7 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
     memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
 
     sz3_interp_decomp_init_runtime(ctx);
+    /* 解压时直接引用外部 quant_inds，不做拷贝以降低内存占用。 */
     ctx->quant_inds = quant_inds;
     eb = sz3_line_quantizer_get_eb(&ctx->quantizer);
 
@@ -623,6 +646,7 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
     }
 
     rctx.ctx = ctx;
+    /* quant_count 透传到回调，用于恢复阶段越界保护。 */
     rctx.quant_count = quant_count;
     for (level = ctx->interp_level; level > 0; level--) {
         size_t stride = ((size_t)1) << ((size_t)level - 1u);
