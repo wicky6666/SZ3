@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "SZ3/decomposition/Decomposition_c.h"
 #include "SZ3/quantizer/line_quantizer_c.h"
 
 #ifdef __cplusplus
@@ -528,20 +529,21 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     size_t dims_begin[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
     size_t dims_end[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
     SZ3InterpQuantizeCtxC qctx;
-    if (ctx == NULL || conf == NULL || out_count == NULL || data == NULL) {
+    if (ctx == NULL || out_count == NULL || data == NULL) {
         return NULL;
     }
-
-    ctx->interp_id = conf->interp_algo;
-    ctx->direction_sequence_id = conf->interp_direction;
-    ctx->anchor_stride = conf->interp_anchor_stride;
-    ctx->eb_alpha = conf->interp_alpha;
-    ctx->eb_beta = conf->interp_beta;
-    ctx->n = conf->num_dims;
-    if (ctx->n > SZ3_INTERP_MAX_DIMS) {
-        ctx->n = SZ3_INTERP_MAX_DIMS;
+    if (conf != NULL) {
+        ctx->interp_id = conf->interp_algo;
+        ctx->direction_sequence_id = conf->interp_direction;
+        ctx->anchor_stride = conf->interp_anchor_stride;
+        ctx->eb_alpha = conf->interp_alpha;
+        ctx->eb_beta = conf->interp_beta;
+        ctx->n = conf->num_dims;
+        if (ctx->n > SZ3_INTERP_MAX_DIMS) {
+            ctx->n = SZ3_INTERP_MAX_DIMS;
+        }
+        memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
     }
-    memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
 
     sz3_interp_decomp_init_runtime(ctx);
     eb = sz3_line_quantizer_get_eb(&ctx->quantizer);
@@ -614,21 +616,23 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
     if (ctx == NULL) {
         return NULL;
     }
-    if (conf == NULL || quant_inds == NULL || dec_data == NULL) {
+    if (quant_inds == NULL || dec_data == NULL) {
         return NULL;
     }
 
-    /* 与压缩路径同步更新运行参数，确保同一配置下可正确反量化。 */
-    ctx->interp_id = conf->interp_algo;
-    ctx->direction_sequence_id = conf->interp_direction;
-    ctx->anchor_stride = conf->interp_anchor_stride;
-    ctx->eb_alpha = conf->interp_alpha;
-    ctx->eb_beta = conf->interp_beta;
-    ctx->n = conf->num_dims;
-    if (ctx->n > SZ3_INTERP_MAX_DIMS) {
-        ctx->n = SZ3_INTERP_MAX_DIMS;
+    if (conf != NULL) {
+        /* 与压缩路径同步更新运行参数，确保同一配置下可正确反量化。 */
+        ctx->interp_id = conf->interp_algo;
+        ctx->direction_sequence_id = conf->interp_direction;
+        ctx->anchor_stride = conf->interp_anchor_stride;
+        ctx->eb_alpha = conf->interp_alpha;
+        ctx->eb_beta = conf->interp_beta;
+        ctx->n = conf->num_dims;
+        if (ctx->n > SZ3_INTERP_MAX_DIMS) {
+            ctx->n = SZ3_INTERP_MAX_DIMS;
+        }
+        memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
     }
-    memcpy(ctx->original_dimensions, conf->dims, sizeof(size_t) * ctx->n);
 
     sz3_interp_decomp_init_runtime(ctx);
     /* 解压时直接引用外部 quant_inds，不做拷贝以降低内存占用。 */
@@ -679,6 +683,55 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
     sz3_line_quantizer_set_eb(&ctx->quantizer, eb);
     return dec_data;
 }
+
+/* ========== Interpolation Decomposition 到通用 DecompositionOps 的桥接钩子 ========== */
+static inline int sz3_interp_decomposition_ops_compress(void *ctx, const SZ3_Config_C *conf, void *data,
+                                                        int **quant_inds, size_t *quant_size) {
+    SZ3InterpolationDecompositionC *interp_ctx = (SZ3InterpolationDecompositionC *)ctx;
+    (void)conf;
+    if (interp_ctx == NULL || data == NULL || quant_inds == NULL || quant_size == NULL) return -1;
+    *quant_inds = sz3_interp_decomp_compress(interp_ctx, NULL, (float *)data, quant_size);
+    return (*quant_inds != NULL || *quant_size == 0) ? 0 : -1;
+}
+
+static inline void sz3_interp_decomposition_ops_get_out_range(void *ctx, int *out_begin, int *out_end) {
+    SZ3InterpolationDecompositionC *interp_ctx = (SZ3InterpolationDecompositionC *)ctx;
+    SZ3RangeI32 r = sz3_interp_decomp_get_out_range(interp_ctx);
+    if (out_begin) *out_begin = r.begin;
+    if (out_end) *out_end = r.end;
+}
+
+static inline size_t sz3_interp_decomposition_ops_size_est(const void *ctx) {
+    const SZ3InterpolationDecompositionC *interp_ctx = (const SZ3InterpolationDecompositionC *)ctx;
+    if (interp_ctx == NULL || interp_ctx->n == 0 || interp_ctx->n > SZ3_INTERP_MAX_DIMS) return 0;
+    return interp_ctx->num_elements * sizeof(int);
+}
+
+static inline void sz3_interp_decomposition_ops_save(const void *ctx, sz3_uchar **buffer_pos) {
+    sz3_interp_decomp_save((SZ3InterpolationDecompositionC *)ctx, buffer_pos);
+}
+
+static inline int sz3_interp_decomposition_ops_load(void *ctx, const sz3_uchar **buffer_pos, size_t *remaining_length) {
+    if (ctx == NULL || buffer_pos == NULL || remaining_length == NULL) return -1;
+    sz3_interp_decomp_load((SZ3InterpolationDecompositionC *)ctx, buffer_pos, remaining_length);
+    return 0;
+}
+
+static inline int sz3_interp_decomposition_ops_decompress(void *ctx, const SZ3_Config_C *conf, const int *quant_inds,
+                                                          size_t quant_size, void *dec_data) {
+    SZ3InterpolationDecompositionC *interp_ctx = (SZ3InterpolationDecompositionC *)ctx;
+    (void)conf;
+    if (interp_ctx == NULL || quant_inds == NULL || dec_data == NULL) return -1;
+    return sz3_interp_decomp_decompress(interp_ctx, NULL, (int *)quant_inds, (float *)dec_data, quant_size) == NULL
+               ? -1
+               : 0;
+}
+
+/* Interpolation decomposition 的通用配置全局实例。 */
+static const SZ3_DecompositionOps_C SZ3_InterpolationDecomposition_Ops = {
+    sz3_interp_decomposition_ops_compress,   sz3_interp_decomposition_ops_get_out_range,
+    sz3_interp_decomposition_ops_size_est,   sz3_interp_decomposition_ops_save,
+    sz3_interp_decomposition_ops_load,       sz3_interp_decomposition_ops_decompress};
 
 #ifdef __cplusplus
 }
