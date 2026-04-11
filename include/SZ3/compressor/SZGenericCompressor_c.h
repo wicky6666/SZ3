@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "SZ3/encoder/Encoder_c.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,8 +18,6 @@ extern "C" {
  * 2) 由于 C 不支持模板与类继承，这里使用“上下文指针 + 函数指针”模拟模块组合。
  * 3) 下方先给出“非编码模块”的空函数（桩函数），便于集成阶段逐步替换。
  */
-
-typedef unsigned char sz3_uchar;
 
 typedef struct SZ3_Config_C {
     /* TODO(未完整实现): 仅占位，具体字段由调用方按项目 Config 映射扩展 */
@@ -94,18 +94,6 @@ static inline int sz3_stub_lossless_decompress(void *ctx, const sz3_uchar *cmp_d
 
 /* ====================== 非编码模块空函数（桩函数）结束 ====================== */
 
-/* 编码模块接口（非空实现由调用方注入） */
-typedef struct SZ3_EncoderOps_C {
-    int (*preprocess_encode)(void *ctx, const int *quant_inds, size_t quant_size, int out_range_end);
-    size_t (*size_est)(void *ctx);
-    int (*save)(void *ctx, sz3_uchar **buffer_pos);
-    int (*encode)(void *ctx, const int *quant_inds, size_t quant_size, sz3_uchar **buffer_pos);
-    int (*postprocess_encode)(void *ctx);
-    int (*load)(void *ctx, const sz3_uchar **buffer_pos, size_t buffer_size);
-    int (*decode)(void *ctx, const sz3_uchar **buffer_pos, size_t quant_size, int **quant_inds_out);
-    int (*postprocess_decode)(void *ctx);
-} SZ3_EncoderOps_C;
-
 typedef struct SZ3_DecompositionOps_C {
     int (*compress)(void *ctx, const SZ3_Config_C *conf, void *data, int **quant_inds, size_t *quant_size);
     void (*get_out_range)(void *ctx, int *out_begin, int *out_end);
@@ -126,7 +114,7 @@ typedef struct SZ3_GenericCompressor_C {
     void *lossless_ctx;
 
     SZ3_DecompositionOps_C decomposition_ops;
-    SZ3_EncoderOps_C encoder_ops;
+    SZ3_EncoderOps_i32_C encoder_ops;
     SZ3_LosslessOps_C lossless_ops;
 } SZ3_GenericCompressor_C;
 
@@ -145,7 +133,7 @@ static inline void sz3_read_size_t(size_t *value, const sz3_uchar **buffer_pos) 
 /* 初始化通用压缩器（相当于 C++ 构造函数） */
 static inline void sz3_generic_compressor_init(SZ3_GenericCompressor_C *c, void *decomposition_ctx,
                                                SZ3_DecompositionOps_C decomposition_ops, void *encoder_ctx,
-                                               SZ3_EncoderOps_C encoder_ops, void *lossless_ctx,
+                                               SZ3_EncoderOps_i32_C encoder_ops, void *lossless_ctx,
                                                SZ3_LosslessOps_C lossless_ops) {
     c->decomposition_ctx = decomposition_ctx;
     c->encoder_ctx = encoder_ctx;
@@ -153,6 +141,13 @@ static inline void sz3_generic_compressor_init(SZ3_GenericCompressor_C *c, void 
     c->decomposition_ops = decomposition_ops;
     c->encoder_ops = encoder_ops;
     c->lossless_ops = lossless_ops;
+}
+
+/* 注册 encoder 通用钩子（便于直接复用 encoder 模块中的全局 ops 实例）。 */
+static inline void sz3_generic_compressor_register_encoder_ops(SZ3_GenericCompressor_C *c,
+                                                               const SZ3_EncoderOps_i32_C *encoder_ops) {
+    if (c == NULL || encoder_ops == NULL) return;
+    c->encoder_ops = *encoder_ops;
 }
 
 /*
@@ -199,15 +194,15 @@ static inline size_t sz3_generic_compress(SZ3_GenericCompressor_C *c, const SZ3_
     sz3_uchar *buffer_pos = buffer;
 
     /* 关键步骤3：序列化 decomposition/encoder 状态 + quant size + 量化索引流 */
-    if ((c->decomposition_ops.save && c->decomposition_ops.save(c->decomposition_ctx, &buffer_pos) != 0) ||
-        (c->encoder_ops.save && c->encoder_ops.save(c->encoder_ctx, &buffer_pos) != 0)) {
+    if ((c->decomposition_ops.save && c->decomposition_ops.save(c->decomposition_ctx, &buffer_pos) != 0)) {
         free(buffer);
         return 0;
     }
+    if (c->encoder_ops.save) c->encoder_ops.save(c->encoder_ctx, &buffer_pos);
 
     sz3_write_size_t(quant_size, &buffer_pos);
 
-    if (!c->encoder_ops.encode || c->encoder_ops.encode(c->encoder_ctx, quant_inds, quant_size, &buffer_pos) != 0) {
+    if (!c->encoder_ops.encode || c->encoder_ops.encode(c->encoder_ctx, quant_inds, quant_size, &buffer_pos) == 0) {
         free(buffer);
         return 0;
     }
@@ -243,8 +238,9 @@ static inline int sz3_generic_decompress(SZ3_GenericCompressor_C *c, const SZ3_C
     const sz3_uchar *buffer_pos = buffer;
 
     /* 关键步骤2：反序列化模块状态 */
+    size_t remaining_length = buffer_size;
     if ((c->decomposition_ops.load && c->decomposition_ops.load(c->decomposition_ctx, &buffer_pos, buffer_size) != 0) ||
-        (c->encoder_ops.load && c->encoder_ops.load(c->encoder_ctx, &buffer_pos, buffer_size) != 0)) {
+        (c->encoder_ops.load && c->encoder_ops.load(c->encoder_ctx, &buffer_pos, &remaining_length) != 0)) {
         free(buffer);
         return -1;
     }
@@ -254,7 +250,15 @@ static inline int sz3_generic_decompress(SZ3_GenericCompressor_C *c, const SZ3_C
     sz3_read_size_t(&quant_size, &buffer_pos);
 
     int *quant_inds = NULL;
-    if (!c->encoder_ops.decode || c->encoder_ops.decode(c->encoder_ctx, &buffer_pos, quant_size, &quant_inds) != 0) {
+    if (quant_size > 0) {
+        quant_inds = (int *)malloc(sizeof(int) * quant_size);
+        if (quant_inds == NULL) {
+            free(buffer);
+            return -1;
+        }
+    }
+    if (!c->encoder_ops.decode || c->encoder_ops.decode(c->encoder_ctx, &buffer_pos, quant_size, quant_inds) != 0) {
+        free(quant_inds);
         free(buffer);
         return -1;
     }
@@ -266,12 +270,11 @@ static inline int sz3_generic_decompress(SZ3_GenericCompressor_C *c, const SZ3_C
     /* 关键步骤4：前端重建原始数据 */
     if (!c->decomposition_ops.decompress ||
         c->decomposition_ops.decompress(c->decomposition_ctx, conf, quant_inds, quant_size, dec_data) != 0) {
+        free(quant_inds);
         return -1;
     }
 
-    /* 未完整实现：quant_inds 的内存所有权依赖 encoder.decode 约定，
-     * 当前默认由调用方/编码器模块管理。
-     */
+    free(quant_inds);
     return 0;
 }
 
