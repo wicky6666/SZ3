@@ -8,6 +8,8 @@
 #include <string.h>
 #include <math.h>
 
+#include "SZ3/encoder/Encoder_c.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -233,25 +235,25 @@ static inline void sz3_huffman_tree_i32_free(SZ3HuffmanTreeI32 *tree) {
  */
 
 /* 预处理：根据输入数据建立 Huffman 树与编码表（对标 preprocess_encode） */
-static inline int sz3_huffman_encoder_i32_preprocess_encode(SZ3HuffmanEncoderI32 *enc,
+static inline int sz3_huffman_encoder_i32_preprocess_encode(void *enc,
                                                             const int *bins,
                                                             size_t num_bin,
                                                             int state_num_hint);
 
 /* 保存 Huffman 树到输出流（对标 save） */
-static inline void sz3_huffman_encoder_i32_save(const SZ3HuffmanEncoderI32 *enc, unsigned char **c);
+static inline void sz3_huffman_encoder_i32_save(const void *enc, unsigned char **c);
 
 /* 估算树与元数据大小（对标 size_est） */
-static inline size_t sz3_huffman_encoder_i32_size_est(const SZ3HuffmanEncoderI32 *enc);
+static inline size_t sz3_huffman_encoder_i32_size_est(const void *enc);
 
 /* 执行编码（对标 encode） */
-static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *enc,
+static inline size_t sz3_huffman_encoder_i32_encode(const void *enc,
                                                     const int *bins,
                                                     size_t num_bin,
                                                     unsigned char **bytes);
 
 /* 编码后清理（对标 postprocess_encode） */
-static inline void sz3_huffman_encoder_i32_postprocess_encode(SZ3HuffmanEncoderI32 *enc);
+static inline void sz3_huffman_encoder_i32_postprocess_encode(void *enc);
 
 /* 解码前预处理（对标 preprocess_decode） */
 static inline void sz3_huffman_encoder_i32_preprocess_decode(SZ3HuffmanEncoderI32 *enc);
@@ -259,18 +261,18 @@ static inline void sz3_huffman_encoder_i32_preprocess_decode(SZ3HuffmanEncoderI3
 /* 执行解码（对标 decode）
  * 返回值：0 表示成功，非 0 表示失败。
  */
-static inline int sz3_huffman_encoder_i32_decode(SZ3HuffmanEncoderI32 *enc,
+static inline int sz3_huffman_encoder_i32_decode(void *enc,
                                                  const unsigned char **bytes,
                                                  size_t target_length,
                                                  int *out_values);
 
 /* 解码后清理（对标 postprocess_decode） */
-static inline void sz3_huffman_encoder_i32_postprocess_decode(SZ3HuffmanEncoderI32 *enc);
+static inline void sz3_huffman_encoder_i32_postprocess_decode(void *enc);
 
 /* 从输入流加载 Huffman 树（对标 load） */
-static inline int sz3_huffman_encoder_i32_load(SZ3HuffmanEncoderI32 *enc,
-                                                const unsigned char **c,
-                                                size_t *remaining_length);
+static inline int sz3_huffman_encoder_i32_load(void *enc,
+                                               const unsigned char **c,
+                                               size_t *remaining_length);
 
 /* 查询是否已成功 load（对标 isLoaded） */
 static inline bool sz3_huffman_encoder_i32_is_loaded(const SZ3HuffmanEncoderI32 *enc);
@@ -538,46 +540,50 @@ static inline int sz3_huffman_init_i32(SZ3HuffmanEncoderI32 *enc, const int *inp
     return 0;
 }
 
-static inline int sz3_huffman_encoder_i32_preprocess_encode(SZ3HuffmanEncoderI32 *enc,
+static inline int sz3_huffman_encoder_i32_preprocess_encode(void *enc,
                                                             const int *bins,
                                                             size_t num_bin,
                                                             int state_num_hint) {
+    SZ3HuffmanEncoderI32 *huffman_enc = (SZ3HuffmanEncoderI32 *)enc;
     (void)state_num_hint;
-    if (enc == NULL || bins == NULL || num_bin == 0) return -1;
+    if (huffman_enc == NULL || bins == NULL || num_bin == 0) return -1;
 
     /* 预处理前先释放历史树，避免跨批次污染。 */
-    sz3_huffman_free_internal_i32(enc);
-    enc->node_count = 0;
-    if (sz3_huffman_init_i32(enc, bins, num_bin) != 0 || enc->tree == NULL) return -1;
+    sz3_huffman_free_internal_i32(huffman_enc);
+    huffman_enc->node_count = 0;
+    if (sz3_huffman_init_i32(huffman_enc, bins, num_bin) != 0 || huffman_enc->tree == NULL) return -1;
 
     /* 统计有效叶子数，并换算序列化树节点总数。 */
-    for (unsigned int i = 0; i < enc->tree->state_num; i++) {
-        if (enc->tree->code[i] != NULL) enc->node_count++;
+    for (unsigned int i = 0; i < huffman_enc->tree->state_num; i++) {
+        if (huffman_enc->tree->code[i] != NULL) huffman_enc->node_count++;
     }
-    enc->node_count = enc->node_count * 2U - 1U;
+    huffman_enc->node_count = huffman_enc->node_count * 2U - 1U;
     return 0;
 }
 
-static inline void sz3_huffman_encoder_i32_postprocess_encode(SZ3HuffmanEncoderI32 *enc) {
+static inline void sz3_huffman_encoder_i32_postprocess_encode(void *enc) {
+    SZ3HuffmanEncoderI32 *huffman_enc = (SZ3HuffmanEncoderI32 *)enc;
     /* 编码完成后释放 Huffman 内部内存。 */
-    sz3_huffman_free_internal_i32(enc);
+    sz3_huffman_free_internal_i32(huffman_enc);
 }
 
-static inline size_t sz3_huffman_encoder_i32_size_est(const SZ3HuffmanEncoderI32 *enc) {
-    if (enc == NULL) return 0;
-    size_t node_count = enc->node_count;
+static inline size_t sz3_huffman_encoder_i32_size_est(const void *enc) {
+    const SZ3HuffmanEncoderI32 *huffman_enc = (const SZ3HuffmanEncoderI32 *)enc;
+    if (huffman_enc == NULL) return 0;
+    size_t node_count = huffman_enc->node_count;
     size_t b = (node_count <= 256U) ? sizeof(unsigned char)
                                     : ((node_count <= 65536U) ? sizeof(unsigned short) : sizeof(unsigned int));
     return 1U + 2U * node_count * b + node_count * sizeof(unsigned char) + node_count * sizeof(int) +
            sizeof(int) + sizeof(int) + sizeof(int);
 }
 
-static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *enc,
+static inline size_t sz3_huffman_encoder_i32_encode(const void *enc,
                                                     const int *bins,
                                                     size_t num_bin,
                                                     unsigned char **bytes) {
-    if (enc == NULL || bins == NULL || num_bin == 0 || bytes == NULL || *bytes == NULL) return 0;
-    if (enc->tree == NULL || enc->tree->cout == NULL || enc->tree->code == NULL) return 0;
+    const SZ3HuffmanEncoderI32 *huffman_enc = (const SZ3HuffmanEncoderI32 *)enc;
+    if (huffman_enc == NULL || bins == NULL || num_bin == 0 || bytes == NULL || *bytes == NULL) return 0;
+    if (huffman_enc->tree == NULL || huffman_enc->tree->cout == NULL || huffman_enc->tree->code == NULL) return 0;
 
     size_t out_size = 0;
     /* 预留前 sizeof(size_t) 字节写编码长度，真实位流从其后开始。 */
@@ -585,11 +591,11 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
     int lack_bits = 0;
 
     for (size_t i = 0; i < num_bin; i++) {
-        int state = (int)(bins[i] - enc->offset);
-        if (state < 0 || (unsigned int)state >= enc->tree->state_num) return 0;
-        if (enc->tree->code[state] == NULL) return 0;
+        int state = (int)(bins[i] - huffman_enc->offset);
+        if (state < 0 || (unsigned int)state >= huffman_enc->tree->state_num) return 0;
+        if (huffman_enc->tree->code[state] == NULL) return 0;
 
-        unsigned char bit_size = enc->tree->cout[state];
+        unsigned char bit_size = huffman_enc->tree->cout[state];
         unsigned char byte_size = 0;
         unsigned char byte_size_p;
 
@@ -599,12 +605,12 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
             byte_size_p = (unsigned char)(bit_size / 8U);
 
             if (byte_size <= 8U) {
-                sz3_dep_i32_int64_to_bytes_big_endian(p, enc->tree->code[state][0]);
+                sz3_dep_i32_int64_to_bytes_big_endian(p, huffman_enc->tree->code[state][0]);
                 p += byte_size_p;
             } else {
-                sz3_dep_i32_int64_to_bytes_big_endian(p, enc->tree->code[state][0]);
+                sz3_dep_i32_int64_to_bytes_big_endian(p, huffman_enc->tree->code[state][0]);
                 p += 8;
-                sz3_dep_i32_int64_to_bytes_big_endian(p, enc->tree->code[state][1]);
+                sz3_dep_i32_int64_to_bytes_big_endian(p, huffman_enc->tree->code[state][1]);
                 p += (byte_size_p - 8U);
             }
             out_size += byte_size;
@@ -612,10 +618,10 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
             lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
         } else {
             /* 目标字节已有残留位：先补齐当前字节，再继续写后续位。 */
-            *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - lack_bits)));
+            *p = (unsigned char)(*p | (unsigned char)(huffman_enc->tree->code[state][0] >> (64 - lack_bits)));
             if (lack_bits < bit_size) {
                 p++;
-                uint64_t new_code = enc->tree->code[state][0] << lack_bits;
+                uint64_t new_code = huffman_enc->tree->code[state][0] << lack_bits;
                 sz3_dep_i32_int64_to_bytes_big_endian(p, new_code);
 
                 if (bit_size <= 64U) {
@@ -635,9 +641,9 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
 
                     bit_size = (unsigned char)(bit_size - 64U);
                     if (lack_bits < bit_size) {
-                        *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - lack_bits)));
+                        *p = (unsigned char)(*p | (unsigned char)(huffman_enc->tree->code[state][0] >> (64 - lack_bits)));
                         p++;
-                        new_code = enc->tree->code[state][1] << lack_bits;
+                        new_code = huffman_enc->tree->code[state][1] << lack_bits;
                         sz3_dep_i32_int64_to_bytes_big_endian(p, new_code);
                         bit_size = (unsigned char)(bit_size - (unsigned char)lack_bits);
                         byte_size = (bit_size % 8U == 0U) ? (unsigned char)(bit_size / 8U)
@@ -647,7 +653,7 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
                         out_size += byte_size;
                         lack_bits = (bit_size % 8U == 0U) ? 0 : (int)(8U - bit_size % 8U);
                     } else {
-                        *p = (unsigned char)(*p | (unsigned char)(enc->tree->code[state][0] >> (64 - bit_size)));
+                        *p = (unsigned char)(*p | (unsigned char)(huffman_enc->tree->code[state][0] >> (64 - bit_size)));
                         lack_bits -= bit_size;
                     }
                 }
@@ -664,25 +670,26 @@ static inline size_t sz3_huffman_encoder_i32_encode(const SZ3HuffmanEncoderI32 *
     return out_size;
 }
 
-static inline void sz3_huffman_encoder_i32_save(const SZ3HuffmanEncoderI32 *enc, unsigned char **c) {
+static inline void sz3_huffman_encoder_i32_save(const void *enc, unsigned char **c) {
+    const SZ3HuffmanEncoderI32 *huffman_enc = (const SZ3HuffmanEncoderI32 *)enc;
     unsigned int total_size;
-    if (enc == NULL || enc->tree == NULL || c == NULL || *c == NULL) return;
+    if (huffman_enc == NULL || huffman_enc->tree == NULL || c == NULL || *c == NULL) return;
 
     /* 序列化头部：offset + node_count + state_num/2。 */
-    memcpy(*c, &enc->offset, sizeof(int));
+    memcpy(*c, &huffman_enc->offset, sizeof(int));
     *c += sizeof(int);
-    sz3_dep_i32_int32_to_bytes_big_endian(*c, (int32_t)enc->node_count);
+    sz3_dep_i32_int32_to_bytes_big_endian(*c, (int32_t)huffman_enc->node_count);
     *c += sizeof(int32_t);
-    sz3_dep_i32_int32_to_bytes_big_endian(*c, (int32_t)(enc->tree->state_num / 2U));
+    sz3_dep_i32_int32_to_bytes_big_endian(*c, (int32_t)(huffman_enc->tree->state_num / 2U));
     *c += sizeof(int32_t);
 
     /* 根据节点规模选择不同索引位宽，保持与 C++ 版本一致。 */
-    if (enc->node_count <= 256U) {
-        total_size = sz3_huffman_convert_tree_to_bytes_u8_i32((SZ3HuffmanEncoderI32 *)enc, enc->node_count, *c);
-    } else if (enc->node_count <= 65536U) {
-        total_size = sz3_huffman_convert_tree_to_bytes_u16_i32((SZ3HuffmanEncoderI32 *)enc, enc->node_count, *c);
+    if (huffman_enc->node_count <= 256U) {
+        total_size = sz3_huffman_convert_tree_to_bytes_u8_i32((SZ3HuffmanEncoderI32 *)huffman_enc, huffman_enc->node_count, *c);
+    } else if (huffman_enc->node_count <= 65536U) {
+        total_size = sz3_huffman_convert_tree_to_bytes_u16_i32((SZ3HuffmanEncoderI32 *)huffman_enc, huffman_enc->node_count, *c);
     } else {
-        total_size = sz3_huffman_convert_tree_to_bytes_u32_i32((SZ3HuffmanEncoderI32 *)enc, enc->node_count, *c);
+        total_size = sz3_huffman_convert_tree_to_bytes_u32_i32((SZ3HuffmanEncoderI32 *)huffman_enc, huffman_enc->node_count, *c);
     }
     *c += total_size;
 }
@@ -692,10 +699,11 @@ static inline void sz3_huffman_encoder_i32_preprocess_decode(SZ3HuffmanEncoderI3
     (void)enc;
 }
 
-static inline int sz3_huffman_encoder_i32_decode(SZ3HuffmanEncoderI32 *enc,
+static inline int sz3_huffman_encoder_i32_decode(void *enc,
                                                  const unsigned char **bytes,
                                                  size_t target_length,
                                                  int *out_values) {
+    SZ3HuffmanEncoderI32 *huffman_enc = (SZ3HuffmanEncoderI32 *)enc;
     size_t i;
     size_t encoded_length = 0;
     size_t bit_pos = 0;
@@ -703,18 +711,18 @@ static inline int sz3_huffman_encoder_i32_decode(SZ3HuffmanEncoderI32 *enc,
     SZ3HuffmanNodeI32 *root;
     SZ3HuffmanNodeI32 *cur;
 
-    if (enc == NULL || bytes == NULL || *bytes == NULL || out_values == NULL) return -1;
+    if (huffman_enc == NULL || bytes == NULL || *bytes == NULL || out_values == NULL) return -1;
     if (target_length == 0) return 0;
-    if (enc->tree_root == NULL) return -1;
+    if (huffman_enc->tree_root == NULL) return -1;
 
-    root = enc->tree_root;
+    root = huffman_enc->tree_root;
     cur = root;
     sz3_dep_i32_read_size_t(&encoded_length, bytes);
 
     /* 常量块快捷路径：根节点即叶子时直接填充。 */
     if (root->is_leaf) {
         for (i = 0; i < target_length; i++) {
-            out_values[i] = root->symbol + enc->offset;
+            out_values[i] = root->symbol + huffman_enc->offset;
         }
         *bytes += encoded_length;
         return 0;
@@ -728,7 +736,7 @@ static inline int sz3_huffman_encoder_i32_decode(SZ3HuffmanEncoderI32 *enc,
         cur = (bit == 0U) ? cur->left : cur->right;
         if (cur == NULL) return -1;
         if (cur->is_leaf) {
-            out_values[out_count++] = cur->symbol + enc->offset;
+            out_values[out_count++] = cur->symbol + huffman_enc->offset;
             cur = root;
         }
         bit_pos++;
@@ -737,57 +745,59 @@ static inline int sz3_huffman_encoder_i32_decode(SZ3HuffmanEncoderI32 *enc,
     return 0;
 }
 
-static inline void sz3_huffman_encoder_i32_postprocess_decode(SZ3HuffmanEncoderI32 *enc) {
+static inline void sz3_huffman_encoder_i32_postprocess_decode(void *enc) {
+    SZ3HuffmanEncoderI32 *huffman_enc = (SZ3HuffmanEncoderI32 *)enc;
     /* 解码后与 C++ postprocess_decode 对齐：释放树资源。 */
-    sz3_huffman_free_internal_i32(enc);
+    sz3_huffman_free_internal_i32(huffman_enc);
 }
 
-static inline int sz3_huffman_encoder_i32_load(SZ3HuffmanEncoderI32 *enc,
+static inline int sz3_huffman_encoder_i32_load(void *enc,
                                                 const unsigned char **c,
                                                 size_t *remaining_length) {
+    SZ3HuffmanEncoderI32 *huffman_enc = (SZ3HuffmanEncoderI32 *)enc;
     int state_num_half;
     size_t encode_start_index;
-    if (enc == NULL || c == NULL || *c == NULL || remaining_length == NULL) return -1;
+    if (huffman_enc == NULL || c == NULL || *c == NULL || remaining_length == NULL) return -1;
 
-    sz3_huffman_free_internal_i32(enc);
+    sz3_huffman_free_internal_i32(huffman_enc);
     if (*remaining_length < sizeof(int)) return -1;
-    memcpy(&enc->offset, *c, sizeof(int));
+    memcpy(&huffman_enc->offset, *c, sizeof(int));
     *c += sizeof(int);
     *remaining_length -= sizeof(int);
     if (*remaining_length < 2U * sizeof(int32_t)) return -1;
-    enc->node_count = (unsigned int)sz3_dep_i32_bytes_to_int32_big_endian(*c);
+    huffman_enc->node_count = (unsigned int)sz3_dep_i32_bytes_to_int32_big_endian(*c);
     *c += sizeof(int32_t);
     *remaining_length -= sizeof(int32_t);
     state_num_half = sz3_dep_i32_bytes_to_int32_big_endian(*c);
     *c += sizeof(int32_t);
     *remaining_length -= sizeof(int32_t);
 
-    if (enc->node_count <= 256U) {
+    if (huffman_enc->node_count <= 256U) {
         /* u8 布局：1 字节类型 + 左右孩子索引 + 符号数组。 */
-        encode_start_index = 1U + 3U * enc->node_count * sizeof(uint8_t) + enc->node_count * sizeof(int);
-    } else if (enc->node_count <= 65536U) {
+        encode_start_index = 1U + 3U * huffman_enc->node_count * sizeof(uint8_t) + huffman_enc->node_count * sizeof(int);
+    } else if (huffman_enc->node_count <= 65536U) {
         /* u16 布局：索引宽度升级为 2 字节。 */
-        encode_start_index = 1U + 2U * enc->node_count * sizeof(uint16_t) + enc->node_count * sizeof(unsigned char) +
-                             enc->node_count * sizeof(int);
+        encode_start_index = 1U + 2U * huffman_enc->node_count * sizeof(uint16_t) + huffman_enc->node_count * sizeof(unsigned char) +
+                             huffman_enc->node_count * sizeof(int);
     } else {
         /* u32 布局：超大树时使用 4 字节索引。 */
-        encode_start_index = 1U + 2U * enc->node_count * sizeof(uint32_t) + enc->node_count * sizeof(unsigned char) +
-                             enc->node_count * sizeof(int);
+        encode_start_index = 1U + 2U * huffman_enc->node_count * sizeof(uint32_t) + huffman_enc->node_count * sizeof(unsigned char) +
+                             huffman_enc->node_count * sizeof(int);
     }
     if (*remaining_length < encode_start_index) return -1;
 
-    enc->tree = sz3_huffman_tree_i32_create(state_num_half * 2);
-    if (enc->tree == NULL) return -1;
-    enc->tree_root = sz3_huffman_reconstruct_tree_from_bytes_any_states_i32(enc, *c, enc->node_count);
-    if (enc->tree_root == NULL) {
-        sz3_huffman_free_internal_i32(enc);
-        enc->loaded = false;
+    huffman_enc->tree = sz3_huffman_tree_i32_create(state_num_half * 2);
+    if (huffman_enc->tree == NULL) return -1;
+    huffman_enc->tree_root = sz3_huffman_reconstruct_tree_from_bytes_any_states_i32(huffman_enc, *c, huffman_enc->node_count);
+    if (huffman_enc->tree_root == NULL) {
+        sz3_huffman_free_internal_i32(huffman_enc);
+        huffman_enc->loaded = false;
         return -1;
     }
 
     *c += encode_start_index;
     *remaining_length -= encode_start_index;
-    enc->loaded = true;
+    huffman_enc->loaded = true;
     return 0;
 }
 
@@ -1116,6 +1126,17 @@ static inline void sz3_huffman_encoder_i32_destroy(SZ3HuffmanEncoderI32 *enc) {
     sz3_huffman_free_internal_i32(enc);
     enc->loaded = false;
 }
+
+/* Huffman i32 作为 encoder 通用配置的全局注册实例。 */
+static const SZ3_EncoderOps_i32_C SZ3_HuffmanEncoderI32_Ops = {
+    sz3_huffman_encoder_i32_preprocess_encode,
+    sz3_huffman_encoder_i32_size_est,
+    sz3_huffman_encoder_i32_save,
+    sz3_huffman_encoder_i32_encode,
+    sz3_huffman_encoder_i32_postprocess_encode,
+    sz3_huffman_encoder_i32_load,
+    sz3_huffman_encoder_i32_decode,
+    sz3_huffman_encoder_i32_postprocess_decode};
 
 #ifdef __cplusplus
 }
