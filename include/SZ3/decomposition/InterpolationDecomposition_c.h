@@ -697,8 +697,8 @@ static inline int sz3_interp_decomposition_ops_compress(void *ctx, const SZ3_Con
 static inline void sz3_interp_decomposition_ops_get_out_range(void *ctx, int *out_begin, int *out_end) {
     SZ3InterpolationDecompositionC *interp_ctx = (SZ3InterpolationDecompositionC *)ctx;
     SZ3RangeI32 r = sz3_interp_decomp_get_out_range(interp_ctx);
-    if (out_begin) *out_begin = r.begin;
-    if (out_end) *out_end = r.end;
+    if (out_begin) *out_begin = r.min;
+    if (out_end) *out_end = r.max;
 }
 
 static inline size_t sz3_interp_decomposition_ops_size_est(const void *ctx) {
