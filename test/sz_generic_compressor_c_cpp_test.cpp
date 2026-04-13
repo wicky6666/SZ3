@@ -75,21 +75,19 @@ void c_decomp_get_out_range(void *ctx, int *out_begin, int *out_end) {
     *out_end = r.max;
 }
 
-size_t c_decomp_size_est(void *ctx) {
-    auto *dctx = static_cast<CDecompositionCtx *>(ctx);
+size_t c_decomp_size_est(const void *ctx) {
+    (void)ctx;
     return 0; // C 版本暂未暴露 size_est 接口，这里返回 0。
 }
 
-int c_decomp_save(void *ctx, unsigned char **buffer_pos) {
-    auto *dctx = static_cast<CDecompositionCtx *>(ctx);
+void c_decomp_save(const void *ctx, unsigned char **buffer_pos) {
+    auto *dctx = const_cast<CDecompositionCtx *>(static_cast<const CDecompositionCtx *>(ctx));
     sz3_interp_decomp_save(&dctx->decomp, buffer_pos);
-    return 0;
 }
 
-int c_decomp_load(void *ctx, const unsigned char **buffer_pos, size_t buffer_size) {
+int c_decomp_load(void *ctx, const unsigned char **buffer_pos, size_t *remaining_length) {
     auto *dctx = static_cast<CDecompositionCtx *>(ctx);
-    size_t remaining = buffer_size;
-    sz3_interp_decomp_load(&dctx->decomp, buffer_pos, &remaining);
+    sz3_interp_decomp_load(&dctx->decomp, buffer_pos, remaining_length);
     return 0;
 }
 
@@ -105,64 +103,55 @@ int c_encoder_preprocess_encode(void *ctx, const int *quant_inds, size_t quant_s
     return sz3_huffman_encoder_i32_preprocess_encode(&ectx->encoder, quant_inds, quant_size, out_range_end);
 }
 
-size_t c_encoder_size_est(void *ctx) {
-    auto *ectx = static_cast<CEncoderCtx *>(ctx);
+size_t c_encoder_size_est(const void *ctx) {
+    auto *ectx = const_cast<CEncoderCtx *>(static_cast<const CEncoderCtx *>(ctx));
     return sz3_huffman_encoder_i32_size_est(&ectx->encoder);
 }
 
-int c_encoder_save(void *ctx, unsigned char **buffer_pos) {
-    auto *ectx = static_cast<CEncoderCtx *>(ctx);
+void c_encoder_save(const void *ctx, unsigned char **buffer_pos) {
+    auto *ectx = const_cast<CEncoderCtx *>(static_cast<const CEncoderCtx *>(ctx));
     sz3_huffman_encoder_i32_save(&ectx->encoder, buffer_pos);
-    return 0;
 }
 
-int c_encoder_encode(void *ctx, const int *quant_inds, size_t quant_size, unsigned char **buffer_pos) {
-    auto *ectx = static_cast<CEncoderCtx *>(ctx);
-    const size_t out = sz3_huffman_encoder_i32_encode(&ectx->encoder, quant_inds, quant_size, buffer_pos);
-    return (out == 0) ? -1 : 0;
+size_t c_encoder_encode(const void *ctx, const int *quant_inds, size_t quant_size, unsigned char **buffer_pos) {
+    auto *ectx = const_cast<CEncoderCtx *>(static_cast<const CEncoderCtx *>(ctx));
+    return sz3_huffman_encoder_i32_encode(&ectx->encoder, quant_inds, quant_size, buffer_pos);
 }
 
-int c_encoder_postprocess_encode(void *ctx) {
+void c_encoder_postprocess_encode(void *ctx) {
     auto *ectx = static_cast<CEncoderCtx *>(ctx);
     sz3_huffman_encoder_i32_postprocess_encode(&ectx->encoder);
-    return 0;
 }
 
-int c_encoder_load(void *ctx, const unsigned char **buffer_pos, size_t buffer_size) {
+int c_encoder_load(void *ctx, const unsigned char **buffer_pos, size_t *remaining_length) {
     auto *ectx = static_cast<CEncoderCtx *>(ctx);
-    size_t remaining = buffer_size;
-    return sz3_huffman_encoder_i32_load(&ectx->encoder, buffer_pos, &remaining);
+    return sz3_huffman_encoder_i32_load(&ectx->encoder, buffer_pos, remaining_length);
 }
 
-int c_encoder_decode(void *ctx, const unsigned char **buffer_pos, size_t quant_size, int **quant_inds_out) {
+int c_encoder_decode(void *ctx, const unsigned char **buffer_pos, size_t quant_size, int *quant_inds_out) {
     auto *ectx = static_cast<CEncoderCtx *>(ctx);
-    *quant_inds_out = static_cast<int *>(malloc(sizeof(int) * quant_size));
-    if (*quant_inds_out == nullptr) {
-        return -1;
-    }
-    return sz3_huffman_encoder_i32_decode(&ectx->encoder, buffer_pos, quant_size, *quant_inds_out);
+    return sz3_huffman_encoder_i32_decode(&ectx->encoder, buffer_pos, quant_size, quant_inds_out);
 }
 
-int c_encoder_postprocess_decode(void *ctx) {
+void c_encoder_postprocess_decode(void *ctx) {
     auto *ectx = static_cast<CEncoderCtx *>(ctx);
     sz3_huffman_encoder_i32_postprocess_decode(&ectx->encoder);
-    return 0;
 }
 
-size_t c_lossless_compress(void *ctx, const unsigned char *src, size_t src_size, unsigned char *dst, size_t dst_cap) {
-    auto *lctx = static_cast<CLosslessCtx *>(ctx);
+size_t c_lossless_compress(const void *ctx, const unsigned char *src, size_t src_size, unsigned char *dst, size_t dst_cap) {
+    auto *lctx = const_cast<CLosslessCtx *>(static_cast<const CLosslessCtx *>(ctx));
     return lctx->lossless.compress(src, src_size, dst, dst_cap);
 }
 
-int c_lossless_decompress(void *ctx, const unsigned char *cmp_data, size_t cmp_size, unsigned char **buffer,
-                          size_t *buffer_size) {
-    auto *lctx = static_cast<CLosslessCtx *>(ctx);
+size_t c_lossless_decompress(const void *ctx, const unsigned char *cmp_data, size_t cmp_size, unsigned char **buffer,
+                             size_t *buffer_size) {
+    auto *lctx = const_cast<CLosslessCtx *>(static_cast<const CLosslessCtx *>(ctx));
     unsigned char *tmp = nullptr;
     size_t out_size = 0;
     lctx->lossless.decompress(cmp_data, cmp_size, tmp, out_size);
     *buffer = tmp;
     *buffer_size = out_size;
-    return 0;
+    return out_size;
 }
 
 } // namespace
@@ -221,9 +210,9 @@ int main() {
 
     SZ3_DecompositionOps_C decomp_ops{c_decomp_compress, c_decomp_get_out_range, c_decomp_size_est,
                                       c_decomp_save,     c_decomp_load,          c_decomp_decompress};
-    SZ3_EncoderOps_C encoder_ops{c_encoder_preprocess_encode, c_encoder_size_est,          c_encoder_save,
-                                 c_encoder_encode,             c_encoder_postprocess_encode, c_encoder_load,
-                                 c_encoder_decode,             c_encoder_postprocess_decode};
+    SZ3_EncoderOps_i32_C encoder_ops{c_encoder_preprocess_encode, c_encoder_size_est,          c_encoder_save,
+                                     c_encoder_encode,             c_encoder_postprocess_encode, c_encoder_load,
+                                     c_encoder_decode,             c_encoder_postprocess_decode};
     SZ3_LosslessOps_C lossless_ops{c_lossless_compress, c_lossless_decompress};
 
     SZ3_GenericCompressor_C c_compressor;
