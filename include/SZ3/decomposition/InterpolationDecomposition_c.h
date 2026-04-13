@@ -10,6 +10,7 @@
 
 #include "SZ3/decomposition/Decomposition_c.h"
 #include "SZ3/quantizer/line_quantizer_c.h"
+#include "SZ3/utils/MemoryUtil_c.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,18 +26,13 @@ extern "C" {
 static inline void sz3_interp_dep_timer_start(const char *tag) {(void)tag;}
 /* 未完整实现：计时模块占位，当前不记录任何时间信息。 */
 static inline void sz3_interp_dep_timer_stop(const char *tag) {(void)tag;}
-/* 未完整实现：序列化写接口占位，当前不向输出缓冲写入字节。 */
+/* 序列化写接口：与 C++ write(array,num,c) 行为一致（含端序处理与游标推进）。 */
 static inline void sz3_interp_dep_write_bytes(const void *src, size_t n, unsigned char **c) {
-    (void)src;
-    (void)n;
-    (void)c;
+    sz3_write_array(src, n, 1u, c);
 }
-/* 未完整实现：序列化读接口占位，当前不从输入缓冲读取字节。 */
+/* 序列化读接口：与 C++ read(array,num,c,remaining) 行为一致（含端序处理、剩余长度检查与游标推进）。 */
 static inline void sz3_interp_dep_read_bytes(void *dst, size_t n, const unsigned char **c, size_t *remaining) {
-    (void)dst;
-    (void)n;
-    (void)c;
-    (void)remaining;
+    sz3_read_array_with_remaining(dst, n, 1u, c, remaining);
 }
 /* 未完整实现：N 维 foreach 遍历器占位，当前不执行任何遍历。 */
 static inline void sz3_interp_dep_foreach_nd_placeholder(void) {}
