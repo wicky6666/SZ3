@@ -351,17 +351,61 @@ static inline void sz3_interp_recover_cb(size_t idx, float *d, float pred, void 
 }
 
 static inline void sz3_interp_decomp_build_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data) {
-    (void)ctx;
-    (void)data;
-    /* 未完整实现：依赖 foreach N 维遍历器，尚未落地锚点采样与量化写入。 */
-    sz3_interp_dep_foreach_nd_placeholder();
+    size_t idx[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    int done = 0;
+    if (ctx == NULL || data == NULL || ctx->anchor_stride == 0 || ctx->n == 0 || ctx->n > SZ3_INTERP_MAX_DIMS) {
+        return;
+    }
+    while (!done) {
+        size_t linear = 0;
+        uint32_t d;
+        for (d = 0; d < ctx->n; d++) {
+            linear += idx[d] * ctx->original_dim_offsets[d];
+        }
+        if (ctx->quant_inds != NULL && ctx->quant_index < ctx->num_elements) {
+            ctx->quant_inds[ctx->quant_index++] =
+                sz3_line_quantizer_force_save_unpred(&ctx->quantizer, data[linear]);
+        }
+
+        for (d = ctx->n; d-- > 0;) {
+            idx[d] += ctx->anchor_stride;
+            if (idx[d] < ctx->original_dimensions[d]) {
+                break;
+            }
+            idx[d] = 0;
+            if (d == 0) {
+                done = 1;
+            }
+        }
+    }
 }
 
 static inline void sz3_interp_decomp_recover_anchor_grid(SZ3InterpolationDecompositionC *ctx, float *data) {
-    (void)ctx;
-    (void)data;
-    /* 未完整实现：依赖 foreach N 维遍历器，尚未落地锚点恢复与游标推进。 */
-    sz3_interp_dep_foreach_nd_placeholder();
+    size_t idx[SZ3_INTERP_MAX_DIMS] = {0, 0, 0, 0};
+    int done = 0;
+    if (ctx == NULL || data == NULL || ctx->anchor_stride == 0 || ctx->n == 0 || ctx->n > SZ3_INTERP_MAX_DIMS) {
+        return;
+    }
+    while (!done) {
+        size_t linear = 0;
+        uint32_t d;
+        for (d = 0; d < ctx->n; d++) {
+            linear += idx[d] * ctx->original_dim_offsets[d];
+        }
+        data[linear] = sz3_line_quantizer_recover_unpred(&ctx->quantizer);
+        ctx->quant_index++;
+
+        for (d = ctx->n; d-- > 0;) {
+            idx[d] += ctx->anchor_stride;
+            if (idx[d] < ctx->original_dimensions[d]) {
+                break;
+            }
+            idx[d] = 0;
+            if (d == 0) {
+                done = 1;
+            }
+        }
+    }
 }
 
 static inline double sz3_interp_decomp_interpolation_1d(SZ3InterpolationDecompositionC *ctx,
@@ -561,7 +605,7 @@ static inline int *sz3_interp_decomp_compress(SZ3InterpolationDecompositionC *ct
     }
 
     qctx.ctx = ctx;
-    for (level = ctx->interp_level; level > 0; level--) {
+    for (level = ctx->interp_level; level > 0 && level <= ctx->interp_level; level--) {
         size_t stride = ((size_t)1) << ((size_t)level - 1u);
         /* 当前层步长 stride=2^(level-1)，block 大小随层级同步放大。 */
         size_t interp_block_size = (size_t)ctx->blocksize * stride;
@@ -648,7 +692,7 @@ static inline float *sz3_interp_decomp_decompress(SZ3InterpolationDecompositionC
     rctx.ctx = ctx;
     /* quant_count 透传到回调，用于恢复阶段越界保护。 */
     rctx.quant_count = quant_count;
-    for (level = ctx->interp_level; level > 0; level--) {
+    for (level = ctx->interp_level; level > 0 && level <= ctx->interp_level; level--) {
         size_t stride = ((size_t)1) << ((size_t)level - 1u);
         size_t interp_block_size = (size_t)ctx->blocksize * stride;
         size_t block_begin;
