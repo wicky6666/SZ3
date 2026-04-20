@@ -23,6 +23,7 @@ typedef struct SZ3_EncoderOps_i32_C {
     int (*load)(void *ctx, const sz3_uchar **buffer_pos, size_t *remaining_length);
     int (*decode)(void *ctx, const sz3_uchar **buffer_pos, size_t quant_size, int *quant_inds_out);
     void (*postprocess_decode)(void *ctx);
+    void (*destroy)(void *ctx);
 } SZ3_EncoderOps_i32_C;
 
 #ifdef __cplusplus

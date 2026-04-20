@@ -166,7 +166,7 @@ static inline void sz3_huffman_encoder_i32_init(SZ3HuffmanEncoderI32 *enc) {
 }
 
 /* 释放编码器内部资源（对标 C++ 析构 + SZ_FreeHuffman） */
-static inline void sz3_huffman_encoder_i32_destroy(SZ3HuffmanEncoderI32 *enc);
+static inline void sz3_huffman_encoder_i32_destroy(void *enc);
 
 /* 创建 HuffmanTree（对标 createHuffmanTree） */
 static inline SZ3HuffmanTreeI32 *sz3_huffman_tree_i32_create(int state_num) {
@@ -1121,10 +1121,11 @@ static inline void sz3_huffman_free_internal_i32(SZ3HuffmanEncoderI32 *enc) {
     enc->node_count = 0;
 }
 
-static inline void sz3_huffman_encoder_i32_destroy(SZ3HuffmanEncoderI32 *enc) {
-    if (enc == NULL) return;
-    sz3_huffman_free_internal_i32(enc);
-    enc->loaded = false;
+static inline void sz3_huffman_encoder_i32_destroy(void *enc) {
+    SZ3HuffmanEncoderI32 *typed_enc = (SZ3HuffmanEncoderI32 *)enc;
+    if (typed_enc == NULL) return;
+    sz3_huffman_free_internal_i32(typed_enc);
+    typed_enc->loaded = false;
 }
 
 /* Huffman i32 作为 encoder 通用配置的全局注册实例。 */
@@ -1136,7 +1137,8 @@ static const SZ3_EncoderOps_i32_C SZ3_HuffmanEncoderI32_Ops = {
     sz3_huffman_encoder_i32_postprocess_encode,
     sz3_huffman_encoder_i32_load,
     sz3_huffman_encoder_i32_decode,
-    sz3_huffman_encoder_i32_postprocess_decode};
+    sz3_huffman_encoder_i32_postprocess_decode,
+    sz3_huffman_encoder_i32_destroy};
 
 #ifdef __cplusplus
 }
