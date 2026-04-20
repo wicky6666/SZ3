@@ -29,7 +29,7 @@ typedef struct SZ3_Config_C {
 typedef struct SZ3_GenericCompressor_C {
     void *decomposition_ctx;
     void *encoder_ctx;
-    void *lossless_ctx;
+    SZ3_LosslessCtx_C *lossless_ctx;
 
     SZ3_DecompositionOps_C decomposition_ops;
     SZ3_EncoderOps_i32_C encoder_ops;
@@ -51,7 +51,7 @@ static inline void sz3_read_size_t(size_t *value, const sz3_uchar **buffer_pos) 
 /* 初始化通用压缩器（相当于 C++ 构造函数） */
 static inline void sz3_generic_compressor_init(SZ3_GenericCompressor_C *c, void *decomposition_ctx,
                                                SZ3_DecompositionOps_C decomposition_ops, void *encoder_ctx,
-                                               SZ3_EncoderOps_i32_C encoder_ops, void *lossless_ctx,
+                                               SZ3_EncoderOps_i32_C encoder_ops, SZ3_LosslessCtx_C *lossless_ctx,
                                                SZ3_LosslessOps_C lossless_ops) {
     c->decomposition_ctx = decomposition_ctx;
     c->encoder_ctx = encoder_ctx;
@@ -59,6 +59,11 @@ static inline void sz3_generic_compressor_init(SZ3_GenericCompressor_C *c, void 
     c->decomposition_ops = decomposition_ops;
     c->encoder_ops = encoder_ops;
     c->lossless_ops = lossless_ops;
+
+    /* 关键步骤：初始化 lossless，上层可无缝切换 zstd/bypass。 */
+    if (c->lossless_ops.init) {
+        c->lossless_ops.init(c->lossless_ctx);
+    }
 }
 
 /* 注册 encoder 通用钩子（便于直接复用 encoder 模块中的全局 ops 实例）。 */
@@ -80,6 +85,10 @@ static inline void sz3_generic_compressor_register_lossless_ops(SZ3_GenericCompr
                                                                 const SZ3_LosslessOps_C *lossless_ops) {
     if (c == NULL || lossless_ops == NULL) return;
     c->lossless_ops = *lossless_ops;
+    /* 重新注册 lossless 时执行 init，确保新模块状态可用。 */
+    if (c->lossless_ops.init) {
+        c->lossless_ops.init(c->lossless_ctx);
+    }
 }
 
 /*
